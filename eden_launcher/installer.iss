@@ -14,10 +14,12 @@ SetupIconFile=assets\eden.ico
 
 [Files]
 Source: "dist\EdenLauncher.exe"; DestDir: "{app}"
+; shortcuts point at this .ico directly: Explorer caches exe icons per path and can keep showing an old one
+Source: "assets\eden.ico"; DestDir: "{app}"
 
 [Icons]
-Name: "{autoprograms}\Eden_Project"; Filename: "{app}\EdenLauncher.exe"
-Name: "{autodesktop}\Eden_Project"; Filename: "{app}\EdenLauncher.exe"
+Name: "{autoprograms}\Eden_Project"; Filename: "{app}\EdenLauncher.exe"; IconFilename: "{app}\eden.ico"
+Name: "{autodesktop}\Eden_Project"; Filename: "{app}\EdenLauncher.exe"; IconFilename: "{app}\eden.ico"
 
 [Run]
 Filename: "{app}\EdenLauncher.exe"; Description: "Launch Eden_Project"; Flags: postinstall nowait skipifsilent
