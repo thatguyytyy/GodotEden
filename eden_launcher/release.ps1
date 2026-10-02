@@ -1,11 +1,12 @@
 # Non-interactive release: export -> stage -> manifest -> upload -> verify through the tunnel.
-# Usage: .\release.ps1 -Version 0.1.2 -Notes "Fixed X" [-NoUpload] [-SkipExport]
+# Usage: .\release.ps1 -Version 0.1.2 -Notes "Fixed X" [-NoUpload] [-SkipExport] [-Launcher]
 # Settings live in config.json. Last stdout line is a JSON result; exit code 0 = released and verified.
 param(
     [Parameter(Mandatory)][string]$Version,
     [string]$Notes = "",
     [switch]$NoUpload,
-    [switch]$SkipExport
+    [switch]$SkipExport,
+    [switch]$Launcher   # also publish a freshly built launcher (installed launchers self-update to it)
 )
 $ErrorActionPreference = "Stop"
 $cfg   = Get-Content "$PSScriptRoot\config.json" -Raw | ConvertFrom-Json
@@ -21,6 +22,13 @@ if (-not (Test-Path $exe)) { throw "missing $exe (run without -SkipExport)" }
 
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item $exe "$stage\GodotEden.exe" -Force
+if ($Launcher) {   # build launcher + installer in one pass so both carry the same exe, then publish it for self-update
+    # via cmd so PyInstaller's stderr logging is merged before PowerShell sees it (PS 5.1 treats native stderr as errors)
+    cmd /c "python `"$PSScriptRoot\build_launcher.py`" --installer 2>&1"
+    if ($LASTEXITCODE) { throw "launcher build failed" }
+    New-Item -ItemType Directory -Force "$stage\launcher" | Out-Null
+    Copy-Item "$PSScriptRoot\dist\EdenLauncher.exe" "$stage\launcher\EdenLauncher.exe" -Force
+}
 foreach ($f in $cfg.extra_files) { Copy-Item "$($cfg.exports_dir)\$f" $stage -Force }
 
 # news.md: newest entry on top
@@ -41,9 +49,11 @@ if (-not $NoUpload) {
     # payload first, manifest last: testers never see a manifest pointing at missing files
     scp @ssh (Get-ChildItem $stage -File | Where-Object Name -ne "manifest.json").FullName $dest
     if ($LASTEXITCODE) { throw "scp payload failed" }
-    if (Test-Path "$stage\news") {   # images referenced from news.md as ![](news/x.png)
-        scp @ssh -r "$stage\news" $dest
-        if ($LASTEXITCODE) { throw "scp news images failed" }
+    foreach ($d in "news", "launcher") {   # news images (![](news/x.png)) and the launcher exe for self-update
+        if (Test-Path "$stage\$d") {
+            scp @ssh -r "$stage\$d" $dest
+            if ($LASTEXITCODE) { throw "scp $d failed" }
+        }
     }
     scp @ssh "$stage\manifest.json" $dest
     if ($LASTEXITCODE) { throw "scp manifest failed" }

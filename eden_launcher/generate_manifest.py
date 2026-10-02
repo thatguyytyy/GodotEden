@@ -3,6 +3,7 @@ import hashlib, json, sys, time
 from pathlib import Path
 
 SKIP = {"manifest.json", "news.md"}  # served alongside, not part of the game files
+SKIP_DIRS = ("news/", "launcher/")   # news images / the launcher's own exe: served, but not game files
 
 
 def sha256(p: Path) -> str:
@@ -19,10 +20,14 @@ def main():
     files = {}
     for p in sorted(root.rglob("*")):
         rel = p.relative_to(root).as_posix()
-        if p.is_file() and rel not in SKIP and not rel.startswith("news/"):  # news/ = images for news.md, not game files
+        if p.is_file() and rel not in SKIP and not rel.startswith(SKIP_DIRS):
             files[rel] = {"sha256": sha256(p), "size": p.stat().st_size}
-    (root / "manifest.json").write_text(json.dumps({"version": version, "files": files}, indent=2))
-    print(f"{len(files)} files, version {version}")
+    manifest = {"version": version, "files": files}
+    exe = root / "launcher" / "EdenLauncher.exe"
+    if exe.is_file():  # installed launchers compare their own hash against this and self-update
+        manifest["launcher"] = {"sha256": sha256(exe), "size": exe.stat().st_size}
+    (root / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    print(f"{len(files)} files, version {version}" + (", launcher published" if "launcher" in manifest else ""))
 
 
 if __name__ == "__main__":

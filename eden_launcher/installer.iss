@@ -26,3 +26,5 @@ Filename: "{app}\EdenLauncher.exe"; Description: "Launch Eden_Project"; Flags: p
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\game"
+Type: files; Name: "{app}\EdenLauncher.exe.old"
+Type: files; Name: "{app}\EdenLauncher.exe.new*"

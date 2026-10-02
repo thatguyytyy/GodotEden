@@ -17,8 +17,17 @@ Flags: `-NoUpload` (stage only), `-SkipExport` (reuse `Eden_Project_<v>.exe`). P
 - Images: put the file in `ExportedGames\release\news\` and write `![](news/shot.png)` in the entry. Both scripts upload
   `news/`; the manifest ignores it, so testers' game folders stay clean. Images show in the DETAILS viewer.
 
-## Ship a new launcher (rare: only when launcher.py changes)
-    python eden_launcher\build_launcher.py --installer     # -> Output\EdenSetup.exe, send to testers
+## Ship a launcher change (only when launcher.py / assets change)
+    powershell -File eden_launcher\release.ps1 -Version <x.y.z> -SkipExport -Launcher
+Builds the launcher + `Output\EdenSetup.exe` in one pass and publishes the exe at `launcher/EdenLauncher.exe`;
+manifest.json then carries `launcher: {sha256,size}`. Installed launchers hash themselves at startup, and if they
+differ from the published hash they download it, verify it, rename themselves to `.old`, put the new exe in place and
+restart. So testers never reinstall. The published exe is the truth: always use `-Launcher` (not a bare
+build_launcher.py) so the installer and the published exe are the same build. The first launcher that has this
+feature has to be installed by hand once (older installs can't self-update).
+
+## Fresh installer for new testers
+    python eden_launcher\build_launcher.py --installer     # -> Output\EdenSetup.exe
 
 ## One-time setup
 1. Copy `config.example.json` to `config.json` (git-ignored: the repo is public, so keep real hosts/logins out of it)

@@ -8,7 +8,7 @@ from PySide6.QtGui import (QColor, QDesktopServices, QFont, QIcon, QImage, QLine
 from PySide6.QtWidgets import (QApplication, QGraphicsOpacityEffect, QLabel, QMenu, QProgressBar,
                                QPushButton, QTextBrowser, QWidget)
 
-SERVER_URL = "https://YOUR-TUNNEL.example.com"  # build_launcher.py patches this; or edit here
+SERVER_URL = "https://YOUR-TUNNEL.example.com"  # build_launcher.py bakes in config.json's tunnel_url (on a copy)
 GAME_EXE = "GodotEden.exe" if sys.platform == "win32" else "GodotEden"
 # Game lives in ./game next to the launcher so the launcher exe is never overwritten/locked.
 BASE = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
@@ -201,6 +201,7 @@ class Worker(QThread):
     news = Signal(str)
     version = Signal(str)
     checked = Signal(list)       # [(rel, size, sha256)] stale files
+    launcher_ready = Signal(str)  # path of a verified new launcher exe, to swap in
     failed = Signal(str)
     done = Signal()
 
@@ -225,6 +226,9 @@ class Worker(QThread):
         r.raise_for_status()
         manifest = r.json()
         self.version.emit(str(manifest.get("version", "")))
+        lp = manifest.get("launcher")  # published launcher exe: {sha256, size}; the hash IS the version
+        if lp and getattr(sys, "frozen", False) and sha256(Path(sys.executable)) != lp["sha256"]:
+            return self._self_update(lp)
         files = manifest["files"]
         stale = []
         for i, (rel, info) in enumerate(files.items(), 1):
@@ -234,25 +238,41 @@ class Worker(QThread):
                 stale.append((rel, info["size"], info["sha256"]))
         self.checked.emit(stale)
 
+    def _fetch(self, rel, dest, digest, on_chunk=None):
+        """Download SERVER_URL/rel to dest, verifying the SHA-256 before it replaces anything."""
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        part = dest.with_name(dest.name + ".part")
+        h = hashlib.sha256()
+        with requests.get(f"{SERVER_URL}/{rel}", headers=UA, stream=True, timeout=30) as r:
+            r.raise_for_status()
+            with part.open("wb") as f:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk); h.update(chunk)
+                    if on_chunk:
+                        on_chunk(len(chunk))
+        if h.hexdigest() != digest:
+            part.unlink()
+            raise RuntimeError(f"Hash mismatch for {rel}")
+        os.replace(part, dest)  # atomic; fails loudly if the game is still running
+
+    def _self_update(self, info):
+        self.status.emit("Updating launcher...")
+        exe = Path(sys.executable)
+        new = exe.with_name(exe.name + ".new")
+        self._fetch("launcher/EdenLauncher.exe", new, info["sha256"])
+        self.launcher_ready.emit(str(new))
+
     def _update(self):
-        total, done, t0 = sum(s for _, s, _ in self.pending), 0, time.time()
+        total, t0, done = sum(s for _, s, _ in self.pending), time.time(), [0]
+
+        def tick(n):
+            done[0] += n
+            self.progress.emit(done[0], total)
+            rate = done[0] / max(time.time() - t0, 0.001)
+            self.speed.emit(f"{fmt(total - done[0])} remaining · {rate/1e6:.2f} MB/s")
+
         for rel, _, digest in self.pending:
-            dest = GAME_DIR / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            part = dest.with_name(dest.name + ".part")
-            h = hashlib.sha256()
-            with requests.get(f"{SERVER_URL}/{rel}", headers=UA, stream=True, timeout=30) as r:
-                r.raise_for_status()
-                with part.open("wb") as f:
-                    for chunk in r.iter_content(1 << 20):
-                        f.write(chunk); h.update(chunk); done += len(chunk)
-                        self.progress.emit(done, total)
-                        rate = done / max(time.time() - t0, 0.001)
-                        self.speed.emit(f"{fmt(total - done)} remaining · {rate/1e6:.2f} MB/s")
-            if h.hexdigest() != digest:
-                part.unlink()
-                raise RuntimeError(f"Hash mismatch for {rel}")
-            os.replace(part, dest)  # atomic; fails loudly if the game is still running
+            self._fetch(rel, GAME_DIR / rel, digest, tick)
         if sys.platform != "win32":
             (GAME_DIR / GAME_EXE).chmod(0o755)
         self.done.emit()
@@ -375,6 +395,7 @@ class Launcher(QWidget):
         self.w.version.connect(self.on_version)
         self.w.failed.connect(self.on_failed)
         self.w.checked.connect(self.on_checked)
+        self.w.launcher_ready.connect(self.on_launcher_ready)
         self.w.done.connect(self.on_downloaded)
         self.w.start()
 
@@ -387,6 +408,25 @@ class Launcher(QWidget):
 
     def on_version(self, v):
         self.ver.setText(f"Version: {v}" if v else "")
+
+    def on_launcher_ready(self, new_path):
+        """Windows can't overwrite a running exe but can rename it: move ourselves aside, drop the new one in, restart."""
+        exe = Path(sys.executable)
+        old = exe.with_name(exe.name + ".old")
+        try:
+            old.unlink(missing_ok=True)
+            os.replace(exe, old)
+            try:
+                os.replace(new_path, exe)
+            except OSError:
+                os.replace(old, exe)  # put the working launcher back
+                raise
+        except OSError as e:
+            self.on_failed(f"Launcher update failed: {e}")
+            return
+        # PYINSTALLER_RESET_ENVIRONMENT: otherwise the child reuses this process's extraction dir
+        subprocess.Popen([str(exe)] + sys.argv[1:], env={**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"})
+        QApplication.quit()
 
     def on_downloaded(self):
         self.start("check")  # re-verify; flips to Play when clean
@@ -421,6 +461,12 @@ class Launcher(QWidget):
 
 
 if __name__ == "__main__":
+    if getattr(sys, "frozen", False):  # leftovers from a launcher self-update
+        for suffix in (".old", ".new"):
+            try:
+                Path(sys.executable + suffix).unlink(missing_ok=True)
+            except OSError:
+                pass  # previous launcher still exiting; the next start cleans it
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(str(RES / "eden.ico")))
     win = Launcher(); win.show()
