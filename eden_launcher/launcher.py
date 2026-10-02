@@ -15,7 +15,7 @@ BASE = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resol
 GAME_DIR = BASE / "game"
 RES = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "assets"
 W, H = 1000, 640
-LAUNCHER_VERSION = "1.1"  # shown bottom-right so you can tell which launcher a tester has; bump when you ship one
+LAUNCHER_VERSION = "1.2"  # shown bottom-right so you can tell which launcher a tester has; bump when you ship one
 UA = {"User-Agent": "EdenLauncher/1.0"}  # the server only serves requests that carry this
 
 STYLE = """
@@ -368,7 +368,8 @@ class Launcher(QWidget):
     def show_news(self, i):
         self.news_i = i
         title, body = self.news[i] if self.news else ("Eden_Project", "No patch notes yet.")
-        self.card_title.setText(title.upper()); self.card_body.setText(IMG_RE.sub("", body).strip())
+        summary = re.split(r"\n#{1,6} ", "\n" + body)[0]  # card shows only the opening text, before the first sub-heading
+        self.card_title.setText(title.upper()); self.card_body.setText(IMG_RE.sub("", summary).strip())
         self.details.setVisible(bool(self.news))
         for j, d in enumerate(self.dots):
             d.setStyleSheet(f"background:{'#e0b040' if j == i else 'rgba(255,255,255,70)'};border:none;border-radius:3px;")
