@@ -15,6 +15,7 @@ BASE = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resol
 GAME_DIR = BASE / "game"
 RES = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "assets"
 W, H = 1000, 640
+LAUNCHER_VERSION = "1.1"  # shown bottom-right so you can tell which launcher a tester has; bump when you ship one
 UA = {"User-Agent": "EdenLauncher/1.0"}  # the server only serves requests that carry this
 
 STYLE = """
@@ -324,6 +325,7 @@ class Launcher(QWidget):
         # play button, version, status
         self.btn = QPushButton("...", self); self.btn.setObjectName("play"); self.btn.setGeometry(52, 462, 240, 58)
         self.btn.setEnabled(False); self.btn.clicked.connect(self.on_click)
+        label(f"Launcher {LAUNCHER_VERSION}", W - 230, 552, 190, 18, 9, "#5d6a7c").setAlignment(Qt.AlignRight)
         self.ver = label("", 54, 528, 400, 20, 10, "#8b98a9")
         self.stat = label("", 54, 550, 520, 20, 10, "#8b98a9")
 
