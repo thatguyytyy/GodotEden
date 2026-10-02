@@ -1,0 +1,9 @@
+[Unit]
+Description=Eden_Project build file server
+
+[Service]
+ExecStart=/usr/bin/python3 %h/eden_server.py /var/www/eden_project 8473
+Restart=always
+
+[Install]
+WantedBy=default.target
