@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://bp0wsdnmlot8j"]
-
-[ext_resource type="Script" uid="uid://coctuem37dxpm" path="res://water_demo.gd" id="1"]
-
-[node name="WaterDemo" type="Node3D" unique_id=1406659056]
-script = ExtResource("1")

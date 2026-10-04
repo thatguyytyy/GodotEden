@@ -1,4 +1,4 @@
-[gd_resource type="EdenFoliageConfig" format=3 uid="uid://p5u8mxk0bux2"]
+[gd_resource type="EdenFoliageConfig" format=3 uid="uid://7sfnvl0gln3o"]
 
 [sub_resource type="EdenFoliageLayer" id="Resource_uyh1r"]
 name = "Grass"
@@ -15,9 +15,9 @@ vertical_alignment = 0.6
 name = "Oak"
 kind = 2
 variants = 3
-density = 0.0035
-scale_min = 2.2
-scale_max = 3.2
+density = 0.0025
+scale_min = 1.826
+scale_max = 2.656
 clump_size = 150.0
 temperature = Vector2(0.42, 1)
 slope = Vector2(0, 30)
@@ -30,8 +30,8 @@ name = "Birch"
 kind = 4
 variants = 3
 density = 0.003
-scale_min = 2.0
-scale_max = 3.0
+scale_min = 1.66
+scale_max = 2.49
 clump_size = 150.0
 temperature = Vector2(0, 0.6)
 slope = Vector2(0, 30)
@@ -44,8 +44,8 @@ name = "Willow"
 kind = 5
 variants = 3
 density = 0.002
-scale_min = 2.0
-scale_max = 2.8
+scale_min = 1.66
+scale_max = 2.324
 clump_size = 150.0
 moisture = Vector2(0.72, 1)
 slope = Vector2(0, 30)
@@ -58,8 +58,8 @@ name = "Fruit tree"
 kind = 8
 variants = 3
 density = 0.0015
-scale_min = 1.6
-scale_max = 2.4
+scale_min = 1.328
+scale_max = 1.992
 clump_size = 150.0
 temperature = Vector2(0.55, 1)
 slope = Vector2(0, 30)
@@ -72,6 +72,7 @@ name = "Shrub"
 kind = 9
 density = 0.02
 scale_min = 0.7
+slope = Vector2(0, 38)
 materials = 49
 draw_distance = 110.0
 
@@ -82,6 +83,7 @@ variants = 1
 density = 0.03
 scale_min = 0.7
 moisture = Vector2(0.6, 1)
+slope = Vector2(0, 38)
 materials = 33
 draw_distance = 70.0
 
@@ -93,6 +95,7 @@ density = 0.006
 scale_min = 0.7
 scale_max = 1.2
 temperature = Vector2(0, 0.7)
+slope = Vector2(0, 38)
 materials = 49
 draw_distance = 90.0
 
@@ -101,6 +104,7 @@ name = "Branches"
 kind = 19
 density = 0.012
 scale_max = 1.2
+slope = Vector2(0, 38)
 materials = 49
 vertical_alignment = 0.2
 draw_distance = 60.0
@@ -120,9 +124,9 @@ collision = true
 name = "Forest oak"
 kind = 2
 variants = 3
-density = 0.012
-scale_min = 2.2
-scale_max = 3.4
+density = 0.008
+scale_min = 1.826
+scale_max = 2.822
 clump_size = 150.0
 temperature = Vector2(0.42, 1)
 slope = Vector2(0, 30)
@@ -136,9 +140,9 @@ far_density_falloff = 0.28
 name = "Forest birch"
 kind = 4
 variants = 3
-density = 0.011
-scale_min = 2.0
-scale_max = 3.2
+density = 0.007
+scale_min = 1.66
+scale_max = 2.656
 clump_size = 150.0
 temperature = Vector2(0, 0.6)
 slope = Vector2(0, 30)
@@ -153,8 +157,8 @@ name = "Forest willow"
 kind = 5
 variants = 3
 density = 0.005
-scale_min = 2.0
-scale_max = 2.8
+scale_min = 1.66
+scale_max = 2.324
 clump_size = 150.0
 moisture = Vector2(0.7, 1)
 slope = Vector2(0, 30)
@@ -171,6 +175,7 @@ variants = 1
 density = 0.04
 scale_min = 0.7
 scale_max = 1.5
+slope = Vector2(0, 38)
 materials = 49
 placement = 1
 draw_distance = 70.0
@@ -182,6 +187,7 @@ variants = 1
 density = 0.05
 scale_min = 0.7
 scale_max = 1.4
+slope = Vector2(0, 38)
 materials = 49
 placement = 1
 draw_distance = 45.0
@@ -193,16 +199,109 @@ variants = 1
 density = 0.012
 scale_min = 0.7
 scale_max = 1.2
+slope = Vector2(0, 38)
 materials = 49
 placement = 1
 draw_distance = 60.0
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_hgfoj"]
+name = "Maple"
+kind = 25
+variants = 3
+density = 0.0015
+scale_min = 1.66
+scale_max = 2.49
+clump_size = 150.0
+temperature = Vector2(0.35, 0.8)
+slope = Vector2(0, 30)
+materials = 49
+lod = 1
+collision = true
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_lymgh"]
+name = "Cherry"
+kind = 27
+variants = 3
+density = 0.001
+scale_min = 1.328
+scale_max = 1.992
+clump_size = 150.0
+temperature = Vector2(0.45, 1)
+slope = Vector2(0, 30)
+materials = 49
+lod = 1
+collision = true
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_u4i07"]
+name = "Forest maple"
+kind = 25
+variants = 3
+density = 0.006
+scale_min = 1.826
+scale_max = 2.656
+clump_size = 150.0
+temperature = Vector2(0.35, 0.8)
+slope = Vector2(0, 30)
+materials = 49
+placement = 1
+collision = true
+far_detail_distance = 256.0
+far_density_falloff = 0.28
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_y1pxh"]
+name = "Forest walnut"
+kind = 26
+variants = 3
+density = 0.003
+scale_min = 1.826
+scale_max = 2.656
+clump_size = 150.0
+temperature = Vector2(0.45, 1)
+slope = Vector2(0, 30)
+materials = 49
+placement = 1
+collision = true
+far_detail_distance = 256.0
+far_density_falloff = 0.28
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_p1eig"]
+name = "Forest cherry"
+kind = 27
+variants = 3
+density = 0.003
+scale_min = 1.494
+scale_max = 2.158
+clump_size = 150.0
+temperature = Vector2(0.45, 1)
+slope = Vector2(0, 30)
+materials = 49
+placement = 1
+collision = true
+far_detail_distance = 256.0
+far_density_falloff = 0.28
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_nll8y"]
+name = "Forest cedar"
+kind = 28
+variants = 3
+density = 0.003
+scale_min = 1.66
+scale_max = 2.49
+clump_size = 150.0
+temperature = Vector2(0, 0.55)
+slope = Vector2(0, 30)
+materials = 53
+placement = 1
+collision = true
+far_detail_distance = 256.0
+far_density_falloff = 0.28
 
 [sub_resource type="EdenFoliageBiome" id="Resource_2rkrs"]
 name = "Temperate"
 temperature = Vector2(0.35, 0.8)
 moisture = Vector2(0.35, 1)
 materials = 49
-layers = Array[EdenFoliageLayer]([SubResource("Resource_uyh1r"), SubResource("Resource_xfqtm"), SubResource("Resource_vwwki"), SubResource("Resource_c862y"), SubResource("Resource_6ra4n"), SubResource("Resource_epmat"), SubResource("Resource_a7617"), SubResource("Resource_n7l64"), SubResource("Resource_uo2rn"), SubResource("Resource_2xjvs"), SubResource("Resource_y1pxh"), SubResource("Resource_p1eig"), SubResource("Resource_nll8y"), SubResource("Resource_4il6k"), SubResource("Resource_enhsa"), SubResource("Resource_2y1tl")])
+layers = Array[EdenFoliageLayer]([SubResource("Resource_uyh1r"), SubResource("Resource_xfqtm"), SubResource("Resource_vwwki"), SubResource("Resource_c862y"), SubResource("Resource_6ra4n"), SubResource("Resource_epmat"), SubResource("Resource_a7617"), SubResource("Resource_n7l64"), SubResource("Resource_uo2rn"), SubResource("Resource_2xjvs"), SubResource("Resource_y1pxh"), SubResource("Resource_p1eig"), SubResource("Resource_nll8y"), SubResource("Resource_4il6k"), SubResource("Resource_enhsa"), SubResource("Resource_2y1tl"), SubResource("EdenFoliageLayer_hgfoj"), SubResource("EdenFoliageLayer_lymgh"), SubResource("EdenFoliageLayer_u4i07"), SubResource("EdenFoliageLayer_y1pxh"), SubResource("EdenFoliageLayer_p1eig"), SubResource("EdenFoliageLayer_nll8y")])
 
 [sub_resource type="EdenFoliageLayer" id="Resource_7h56b"]
 name = "Grass"
@@ -221,9 +320,9 @@ grass_tip_color = Color(0.36, 0.48, 0.25, 1)
 name = "Pine"
 kind = 3
 variants = 3
-density = 0.007
-scale_min = 2.2
-scale_max = 3.4
+density = 0.004
+scale_min = 1.826
+scale_max = 2.822
 clump_size = 150.0
 slope = Vector2(0, 30)
 materials = 53
@@ -235,8 +334,8 @@ name = "Birch"
 kind = 4
 variants = 3
 density = 0.0015
-scale_min = 2.0
-scale_max = 3.0
+scale_min = 1.66
+scale_max = 2.49
 clump_size = 150.0
 temperature = Vector2(0.25, 1)
 slope = Vector2(0, 30)
@@ -250,6 +349,7 @@ kind = 9
 density = 0.012
 scale_min = 0.6
 scale_max = 1.1
+slope = Vector2(0, 38)
 materials = 49
 draw_distance = 110.0
 
@@ -258,6 +358,7 @@ name = "Branches"
 kind = 19
 density = 0.012
 scale_max = 1.2
+slope = Vector2(0, 38)
 materials = 49
 vertical_alignment = 0.2
 draw_distance = 60.0
@@ -277,9 +378,9 @@ collision = true
 name = "Forest pine"
 kind = 3
 variants = 3
-density = 0.022
-scale_min = 2.2
-scale_max = 3.8
+density = 0.009
+scale_min = 1.826
+scale_max = 3.154
 clump_size = 150.0
 slope = Vector2(0, 30)
 materials = 53
@@ -295,6 +396,7 @@ variants = 1
 density = 0.025
 scale_min = 0.6
 scale_max = 1.2
+slope = Vector2(0, 38)
 materials = 49
 placement = 1
 draw_distance = 70.0
@@ -307,16 +409,73 @@ density = 0.03
 scale_min = 0.6
 scale_max = 1.2
 moisture = Vector2(0.45, 1)
+slope = Vector2(0, 38)
 materials = 49
 placement = 1
 draw_distance = 45.0
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_uyh1r"]
+name = "Spruce"
+kind = 29
+variants = 3
+density = 0.002
+scale_min = 1.494
+scale_max = 2.324
+clump_size = 150.0
+slope = Vector2(0, 30)
+materials = 53
+lod = 1
+collision = true
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_xfqtm"]
+name = "Fir"
+kind = 30
+variants = 3
+density = 0.0015
+scale_min = 1.577
+scale_max = 2.407
+clump_size = 150.0
+slope = Vector2(0, 30)
+materials = 53
+lod = 1
+collision = true
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_vwwki"]
+name = "Forest spruce"
+kind = 29
+variants = 3
+density = 0.007
+scale_min = 1.494
+scale_max = 2.49
+clump_size = 150.0
+slope = Vector2(0, 30)
+materials = 53
+placement = 1
+collision = true
+far_detail_distance = 256.0
+far_density_falloff = 0.28
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_c862y"]
+name = "Forest fir"
+kind = 30
+variants = 3
+density = 0.006
+scale_min = 1.577
+scale_max = 2.573
+clump_size = 150.0
+slope = Vector2(0, 30)
+materials = 53
+placement = 1
+collision = true
+far_detail_distance = 256.0
+far_density_falloff = 0.28
 
 [sub_resource type="EdenFoliageBiome" id="Resource_7bex6"]
 name = "Boreal"
 temperature = Vector2(0.06, 0.4)
 moisture = Vector2(0.25, 1)
 materials = 17
-layers = Array[EdenFoliageLayer]([SubResource("Resource_7h56b"), SubResource("Resource_ji6mu"), SubResource("Resource_vepnq"), SubResource("Resource_07620"), SubResource("Resource_acbbd"), SubResource("Resource_iksma"), SubResource("Resource_qq5rd"), SubResource("Resource_rgacn"), SubResource("Resource_8xek2")])
+layers = Array[EdenFoliageLayer]([SubResource("Resource_7h56b"), SubResource("Resource_ji6mu"), SubResource("Resource_vepnq"), SubResource("Resource_07620"), SubResource("Resource_acbbd"), SubResource("Resource_iksma"), SubResource("Resource_qq5rd"), SubResource("Resource_rgacn"), SubResource("Resource_8xek2"), SubResource("EdenFoliageLayer_uyh1r"), SubResource("EdenFoliageLayer_xfqtm"), SubResource("EdenFoliageLayer_vwwki"), SubResource("EdenFoliageLayer_c862y")])
 
 [sub_resource type="EdenFoliageLayer" id="Resource_wkmi1"]
 name = "Grass"
@@ -332,9 +491,9 @@ vertical_alignment = 0.6
 name = "Palm"
 kind = 6
 variants = 3
-density = 0.004
-scale_min = 1.8
-scale_max = 2.8
+density = 0.003
+scale_min = 1.494
+scale_max = 2.324
 clump_size = 150.0
 slope = Vector2(0, 30)
 materials = 57
@@ -346,8 +505,8 @@ name = "Fruit tree"
 kind = 8
 variants = 3
 density = 0.002
-scale_min = 1.6
-scale_max = 2.4
+scale_min = 1.328
+scale_max = 1.992
 clump_size = 150.0
 slope = Vector2(0, 30)
 materials = 49
@@ -360,6 +519,7 @@ kind = 10
 variants = 1
 density = 0.04
 scale_max = 1.5
+slope = Vector2(0, 38)
 materials = 33
 draw_distance = 70.0
 
@@ -368,6 +528,7 @@ name = "Shrub"
 kind = 9
 density = 0.02
 scale_max = 1.4
+slope = Vector2(0, 38)
 materials = 49
 draw_distance = 110.0
 
@@ -375,9 +536,9 @@ draw_distance = 110.0
 name = "Jungle palm"
 kind = 6
 variants = 3
-density = 0.012
-scale_min = 2.0
-scale_max = 3.2
+density = 0.006
+scale_min = 1.66
+scale_max = 2.656
 clump_size = 150.0
 slope = Vector2(0, 30)
 materials = 57
@@ -390,8 +551,9 @@ far_density_falloff = 0.28
 name = "Jungle fruit tree"
 kind = 8
 variants = 3
-scale_min = 1.8
-scale_max = 2.8
+density = 0.005
+scale_min = 1.494
+scale_max = 2.324
 clump_size = 150.0
 slope = Vector2(0, 30)
 materials = 49
@@ -406,6 +568,7 @@ kind = 9
 variants = 1
 density = 0.045
 scale_max = 1.6
+slope = Vector2(0, 38)
 materials = 49
 placement = 1
 draw_distance = 70.0
@@ -416,9 +579,97 @@ kind = 10
 variants = 1
 density = 0.06
 scale_max = 1.6
+slope = Vector2(0, 38)
 materials = 49
 placement = 1
 draw_distance = 45.0
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_6ra4n"]
+name = "Teak"
+kind = 22
+variants = 3
+density = 0.001
+scale_min = 1.494
+scale_max = 2.324
+clump_size = 150.0
+slope = Vector2(0, 30)
+materials = 49
+lod = 1
+collision = true
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_epmat"]
+name = "Mahogany"
+kind = 21
+variants = 3
+density = 0.0008
+scale_min = 1.66
+scale_max = 2.49
+clump_size = 150.0
+slope = Vector2(0, 30)
+materials = 49
+lod = 1
+collision = true
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_a7617"]
+name = "Jungle mahogany"
+kind = 21
+variants = 3
+density = 0.004
+scale_min = 1.826
+scale_max = 2.656
+clump_size = 150.0
+slope = Vector2(0, 30)
+materials = 49
+placement = 1
+collision = true
+far_detail_distance = 256.0
+far_density_falloff = 0.28
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_n7l64"]
+name = "Jungle teak"
+kind = 22
+variants = 3
+density = 0.004
+scale_min = 1.66
+scale_max = 2.49
+clump_size = 150.0
+slope = Vector2(0, 30)
+materials = 49
+placement = 1
+collision = true
+far_detail_distance = 256.0
+far_density_falloff = 0.28
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_uo2rn"]
+name = "Jungle ebony"
+kind = 23
+variants = 3
+density = 0.003
+scale_min = 1.494
+scale_max = 2.158
+clump_size = 150.0
+moisture = Vector2(0.6, 1)
+slope = Vector2(0, 30)
+materials = 49
+placement = 1
+collision = true
+far_detail_distance = 256.0
+far_density_falloff = 0.28
+
+[sub_resource type="EdenFoliageLayer" id="EdenFoliageLayer_2xjvs"]
+name = "Jungle rosewood"
+kind = 24
+variants = 3
+density = 0.003
+scale_min = 1.577
+scale_max = 2.324
+clump_size = 150.0
+slope = Vector2(0, 30)
+materials = 49
+placement = 1
+collision = true
+far_detail_distance = 256.0
+far_density_falloff = 0.28
 
 [sub_resource type="EdenFoliageBiome" id="Resource_4qwq4"]
 name = "Tropical"
@@ -426,7 +677,7 @@ temperature = Vector2(0.72, 1)
 moisture = Vector2(0.45, 1)
 materials = 9
 density_scale = 2.0
-layers = Array[EdenFoliageLayer]([SubResource("Resource_wkmi1"), SubResource("Resource_2y2yb"), SubResource("Resource_lofsu"), SubResource("Resource_3twvk"), SubResource("Resource_m04a3"), SubResource("Resource_oc0on"), SubResource("Resource_vwuwy"), SubResource("Resource_e7y0u"), SubResource("Resource_0m62o")])
+layers = Array[EdenFoliageLayer]([SubResource("Resource_wkmi1"), SubResource("Resource_2y2yb"), SubResource("Resource_lofsu"), SubResource("Resource_3twvk"), SubResource("Resource_m04a3"), SubResource("Resource_oc0on"), SubResource("Resource_vwuwy"), SubResource("Resource_e7y0u"), SubResource("Resource_0m62o"), SubResource("EdenFoliageLayer_6ra4n"), SubResource("EdenFoliageLayer_epmat"), SubResource("EdenFoliageLayer_a7617"), SubResource("EdenFoliageLayer_n7l64"), SubResource("EdenFoliageLayer_uo2rn"), SubResource("EdenFoliageLayer_2xjvs")])
 
 [sub_resource type="EdenFoliageLayer" id="Resource_sigq6"]
 name = "Dry grass"
@@ -448,8 +699,8 @@ name = "Dead tree"
 kind = 7
 variants = 3
 density = 0.0004
-scale_min = 1.6
-scale_max = 2.6
+scale_min = 1.328
+scale_max = 2.158
 slope = Vector2(0, 30)
 materials = 57
 lod = 1
@@ -459,6 +710,7 @@ collision = true
 name = "Dead bush"
 kind = 11
 scale_min = 0.7
+slope = Vector2(0, 38)
 materials = 57
 draw_distance = 110.0
 
@@ -470,6 +722,7 @@ density = 0.004
 scale_min = 0.7
 scale_max = 1.4
 temperature = Vector2(0.7, 1)
+slope = Vector2(0, 38)
 materials = 25
 draw_distance = 150.0
 
@@ -486,8 +739,8 @@ name = "Dead tree"
 kind = 7
 variants = 3
 density = 0.0005
-scale_min = 1.4
-scale_max = 2.2
+scale_min = 1.162
+scale_max = 1.826
 slope = Vector2(0, 30)
 materials = 53
 lod = 1
@@ -498,8 +751,8 @@ name = "Pine"
 kind = 3
 variants = 3
 density = 0.0008
-scale_min = 1.2
-scale_max = 2.0
+scale_min = 0.996
+scale_max = 1.66
 clump_size = 150.0
 slope = Vector2(0, 30)
 materials = 53
@@ -596,9 +849,10 @@ density = 0.0003
 scale_min = 18.0
 scale_max = 55.0
 vertical_alignment = 0.0
-sink = -0.18
+sink = -0.35
 lod = 1
 collision = true
+stretch = Vector3(1, 1.2, 1)
 roughness = 0.18
 
 [sub_resource type="EdenFoliageLayer" id="Resource_hhmrf"]
@@ -607,9 +861,10 @@ density = 0.0005
 scale_min = 8.0
 scale_max = 25.0
 vertical_alignment = 0.0
-sink = -0.15
+sink = -0.3
 lod = 1
 collision = true
+stretch = Vector3(1.2, 0.9, 1.1)
 roughness = 0.3
 
 [sub_resource type="EdenFoliageLayer" id="Resource_hcdlu"]
@@ -627,7 +882,7 @@ collision = true
 [sub_resource type="EdenFoliageBiome" id="Resource_ooxfq"]
 name = "Cliffs"
 slope = Vector2(35, 90)
-density_scale = 2.0
+density_scale = 0.5
 layers = Array[EdenFoliageLayer]([SubResource("Resource_1qyht"), SubResource("Resource_hhmrf"), SubResource("Resource_hcdlu")])
 
 [resource]

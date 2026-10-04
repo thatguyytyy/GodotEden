@@ -237,6 +237,8 @@ public:
 		NOTIFICATION_EXIT_WORLD = 42,
 		NOTIFICATION_VISIBILITY_CHANGED = 43,
 		NOTIFICATION_LOCAL_TRANSFORM_CHANGED = 44,
+		// Eden fork: SceneTree.debug_collisions_hint changed at runtime (propagated from the root)
+		NOTIFICATION_DEBUG_COLLISIONS_HINT_CHANGED = 9101,
 	};
 
 	Node3D *get_parent_node_3d() const;

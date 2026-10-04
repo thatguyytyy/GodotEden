@@ -11,13 +11,25 @@ config_version=5
 [application]
 
 config/name="EdenDemo"
-run/main_scene="res://main.tscn"
+run/main_scene="res://menu/main_menu.tscn"
 config/features=PackedStringArray("4.6")
+
+[autoload]
+
+EdenApp="*res://menu/eden_app.gd"
+EdenMusic="*res://menu/eden_music.gd"
+EdenSteam="*res://menu/eden_steam.gd"
 
 [display]
 
-window/size/viewport_width=1920
-window/size/viewport_height=1080
+window/size/viewport_width=2000
+window/size/viewport_height=1280
+
+[editor]
+
+movie_writer/ogv/encoding_speed=1
+movie_writer/movie_file="C:/DEV_DRIVE/Dev/GodotEden/demo_eden/movies/background.ogv"
+movie_writer/fps=30
 
 [editor_plugins]
 
@@ -26,6 +38,11 @@ enabled=PackedStringArray("res://addons/eden_debug_probe/plugin.cfg")
 [global_group]
 
 ocean_ripple=""
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+common/physics_interpolation=true
 
 [shader_globals]
 
@@ -42,6 +59,22 @@ eden_weather_params={
 "value": Vector4(0.35, 0.4, 0, 0)
 }
 eden_weather_snow={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+eden_snow_trail_map={
+"type": "sampler2D",
+"value": ""
+}
+eden_snow_trail_frame={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+eden_snow_trail_u={
+"type": "vec4",
+"value": Vector4(0, 0, 0, 0)
+}
+eden_snow_trail_v={
 "type": "vec4",
 "value": Vector4(0, 0, 0, 0)
 }

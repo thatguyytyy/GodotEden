@@ -940,7 +940,14 @@ void SceneTree::set_quit_on_go_back(bool p_enable) {
 
 #ifdef DEBUG_ENABLED
 void SceneTree::set_debug_collisions_hint(bool p_enabled) {
+	const bool changed = debug_collisions_hint != p_enabled;
 	debug_collisions_hint = p_enabled;
+#ifndef _3D_DISABLED
+	// Eden fork: bodies already in the tree show or drop their collision shapes now, not only when next added
+	if (changed && root) {
+		root->propagate_notification(Node3D::NOTIFICATION_DEBUG_COLLISIONS_HINT_CHANGED);
+	}
+#endif // _3D_DISABLED
 }
 
 bool SceneTree::is_debugging_collisions_hint() const {

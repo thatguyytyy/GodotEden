@@ -3,7 +3,10 @@
 #include "eden_gait.h"
 
 #include "core/math/math_funcs.h"
+#include "scene/3d/physics/collision_object_3d.h"
 #include "scene/3d/skeleton_3d.h"
+#include "scene/resources/3d/world_3d.h"
+#include "servers/physics_3d/physics_server_3d.h"
 
 namespace {
 
@@ -112,6 +115,7 @@ void EdenAnimator::_process_modification(double p_delta) {
 	p["head"] = EdenGait::q(Z, yaw * 0.5f) * EdenGait::q(X, pitch * 0.6f) * (p.has("head") ? Quaternion(p["head"]) : Quaternion());
 	p["spine_03"] = EdenGait::q(Z, yaw * 0.15f) * (p.has("spine_03") ? Quaternion(p["spine_03"]) : Quaternion());
 	_apply(skel, p);
+	_foot_ik(skel, delta);
 
 	if (swim > 0.5f) {
 		state = ground_speed > 0.4f ? "swim" : "tread";
@@ -129,6 +133,11 @@ void EdenAnimator::_process_modification(double p_delta) {
 }
 
 void EdenAnimator::_apply(Skeleton3D *p_skel, const Dictionary &p_pose) {
+	// The pelvis always starts from rest (plus the pose's offset below): foot IK lowers it again every frame
+	const int pelvis = _bone(p_skel, "pelvis");
+	if (pelvis >= 0 && !p_pose.has("pelvis_offset")) {
+		p_skel->set_bone_pose_position(pelvis, EdenGait::pelvis_rest());
+	}
 	for (const Variant &kv : p_pose.keys()) {
 		const String k = kv;
 		if (k == "pelvis_offset") {
@@ -151,6 +160,116 @@ void EdenAnimator::_apply(Skeleton3D *p_skel, const Dictionary &p_pose) {
 	}
 }
 
+// Foot IK, in skeleton space (Z up, origin on the body's floor): the pose has just been applied as if the ground were
+// flat under the body; this puts each foot on the ground actually under it.
+void EdenAnimator::_foot_ik(Skeleton3D *p_skel, float p_delta) {
+	const int pelvis = _bone(p_skel, "pelvis");
+	const int thigh[2] = { _bone(p_skel, "thigh_l"), _bone(p_skel, "thigh_r") };
+	const int calf[2] = { _bone(p_skel, "calf_l"), _bone(p_skel, "calf_r") };
+	const int foot[2] = { _bone(p_skel, "foot_l"), _bone(p_skel, "foot_r") };
+	if (pelvis < 0 || thigh[0] < 0 || thigh[1] < 0 || calf[0] < 0 || calf[1] < 0 || foot[0] < 0 || foot[1] < 0) {
+		return;
+	}
+	const Vector3 up(0, 0, 1);
+	// Off in the air and in water; fades so a landing doesn't snap
+	const float target_weight = foot_ik ? (1.0f - air) * (1.0f - swim) : 0.0f;
+	ik_weight = Math::move_toward(ik_weight, target_weight, p_delta * 6.0f);
+
+	// The ground under each foot
+	Ref<World3D> world = p_skel->get_world_3d();
+	PhysicsDirectSpaceState3D *space = world.is_valid() ? world->get_direct_space_state() : nullptr;
+	const Transform3D to_world = p_skel->get_global_transform();
+	const Transform3D to_skel = to_world.affine_inverse();
+	PhysicsDirectSpaceState3D::RayParameters ray;
+	ray.collision_mask = uint32_t(foot_ik_mask);
+	for (Node *n = p_skel->get_parent(); n != nullptr; n = n->get_parent()) {
+		CollisionObject3D *body = Object::cast_to<CollisionObject3D>(n);
+		if (body != nullptr) {
+			ray.exclude.insert(body->get_rid()); // our own capsule
+			break;
+		}
+	}
+	const float reach = foot_ik_max_step;
+	const float ease = 1.0f - Math::exp(-p_delta * 14.0f);
+	for (int i = 0; i < 2; ++i) {
+		float offset = 0.0f;
+		Vector3 normal = up;
+		if (space != nullptr && ik_weight > 0.0f) {
+			const Vector3 ankle = p_skel->get_bone_global_pose(foot[i]).origin;
+			ray.from = to_world.xform(Vector3(ankle.x, ankle.y, reach + 0.3f));
+			ray.to = to_world.xform(Vector3(ankle.x, ankle.y, -reach));
+			PhysicsDirectSpaceState3D::RayResult hit;
+			if (space->intersect_ray(ray, hit)) {
+				offset = CLAMP(to_skel.xform(hit.position).z, -reach, reach);
+				normal = to_skel.basis.xform(hit.normal).normalized();
+				if (normal.dot(up) < 0.5f) { // a wall or a steep face: don't stand the foot up it
+					normal = up;
+				}
+			}
+		}
+		ik_offset[i] = Math::lerp(ik_offset[i], offset, ease);
+		ik_normal[i] = ik_normal[i].lerp(normal, ease).normalized();
+	}
+	// The pelvis comes down as far as the lower foot needs, so that leg can reach
+	const float drop = MAX(0.0f, -MIN(ik_offset[0], ik_offset[1])) * ik_weight;
+	ik_drop = Math::lerp(ik_drop, drop, ease);
+	if (ik_weight <= 0.0f && ik_drop < 1e-4f) {
+		return;
+	}
+	const Transform3D pelvis_parent = p_skel->get_bone_parent(pelvis) >= 0 ? p_skel->get_bone_global_pose(p_skel->get_bone_parent(pelvis)) : Transform3D();
+	p_skel->set_bone_pose_position(pelvis, p_skel->get_bone_pose_position(pelvis) + pelvis_parent.basis.inverse().xform(-up * ik_drop));
+
+	for (int i = 0; i < 2; ++i) {
+		const Vector3 ankle = p_skel->get_bone_global_pose(foot[i]).origin; // (already lowered with the pelvis)
+		const Vector3 target = ankle + up * ((ik_offset[i] * ik_weight) + ik_drop);
+		// Planted feet (near their rest height) lie on the slope; a foot swinging through the air doesn't
+		const float lift = ankle.z + ik_drop - p_skel->get_bone_global_rest(foot[i]).origin.z;
+		const float planted = (1.0f - CLAMP(lift / 0.12f, 0.0f, 1.0f)) * ik_weight;
+		Quaternion tilt(up, ik_normal[i]);
+		const float max_tilt = Math::deg_to_rad(35.0f);
+		if (tilt.get_angle() > max_tilt) {
+			tilt = Quaternion().slerp(tilt, max_tilt / tilt.get_angle());
+		}
+		_two_bone(p_skel, thigh[i], calf[i], foot[i], target, Quaternion().slerp(tilt, planted));
+	}
+}
+
+// Bends thigh and calf so the foot's ankle reaches p_target (skeleton space), keeping the knee in the plane it already
+// bends in; the foot keeps its world orientation, turned by p_foot_tilt.
+void EdenAnimator::_two_bone(Skeleton3D *p_skel, int p_thigh, int p_calf, int p_foot, const Vector3 &p_target, const Quaternion &p_foot_tilt) {
+	const Transform3D gt = p_skel->get_bone_global_pose(p_thigh);
+	const Transform3D gc = p_skel->get_bone_global_pose(p_calf);
+	const Transform3D gf = p_skel->get_bone_global_pose(p_foot);
+	const Vector3 a = gt.origin, b = gc.origin, c = gf.origin;
+	const float l1 = a.distance_to(b), l2 = b.distance_to(c);
+	if (l1 < 1e-4f || l2 < 1e-4f) {
+		return;
+	}
+	Vector3 to_target = p_target - a;
+	const float d = CLAMP(to_target.length(), Math::abs(l1 - l2) + 1e-3f, l1 + l2 - 1e-3f);
+	const Vector3 dir = to_target.length() > 1e-5f ? to_target.normalized() : (c - a).normalized();
+	const Vector3 t = a + dir * d;
+	Vector3 pole = (b - a) - dir * (b - a).dot(dir); // which way the knee points
+	if (pole.length_squared() < 1e-8f) {
+		pole = Vector3(0, -1, 0) + dir * dir.y; // straight leg: knees go forward (-Y), off the leg's line
+	}
+	pole.normalize();
+	const float cos_a = CLAMP((l1 * l1 + d * d - l2 * l2) / (2.0f * l1 * d), -1.0f, 1.0f);
+	const Vector3 knee = a + dir * (l1 * cos_a) + pole * (l1 * Math::sqrt(MAX(0.0f, 1.0f - cos_a * cos_a)));
+
+	const Quaternion q_thigh((b - a).normalized(), (knee - a).normalized());
+	const Quaternion thigh_rot = q_thigh * gt.basis.get_rotation_quaternion();
+	const Quaternion q_calf(q_thigh.xform(c - b).normalized(), (t - knee).normalized());
+	const Quaternion calf_rot = q_calf * q_thigh * gc.basis.get_rotation_quaternion();
+	const Quaternion foot_rot = p_foot_tilt * gf.basis.get_rotation_quaternion();
+
+	const int parent = p_skel->get_bone_parent(p_thigh);
+	const Quaternion parent_rot = parent >= 0 ? p_skel->get_bone_global_pose(parent).basis.get_rotation_quaternion() : Quaternion();
+	p_skel->set_bone_pose_rotation(p_thigh, (parent_rot.inverse() * thigh_rot).normalized());
+	p_skel->set_bone_pose_rotation(p_calf, (thigh_rot.inverse() * calf_rot).normalized());
+	p_skel->set_bone_pose_rotation(p_foot, (calf_rot.inverse() * foot_rot).normalized());
+}
+
 void EdenAnimator::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("land", "impact"), &EdenAnimator::land);
 	ClassDB::bind_method(D_METHOD("get_state"), &EdenAnimator::get_state);
@@ -168,6 +287,9 @@ void EdenAnimator::_bind_methods() {
 	EDEN_ANIM_BIND(FLOAT, look_pitch)
 	EDEN_ANIM_BIND(FLOAT, walk_speed)
 	EDEN_ANIM_BIND(FLOAT, run_speed)
+	EDEN_ANIM_BIND(BOOL, foot_ik)
+	EDEN_ANIM_BIND(FLOAT, foot_ik_max_step)
+	EDEN_ANIM_BIND(INT, foot_ik_mask)
 #undef EDEN_ANIM_BIND
 	ADD_SIGNAL(MethodInfo("step", PropertyInfo(Variant::INT, "foot"), PropertyInfo(Variant::FLOAT, "strength")));
 }

@@ -1,5 +1,5 @@
 extends SceneTree
-## Triangles per foliage mesh: each layer kind's near mesh, and its voxelized far mesh at a few resolutions.
+## Triangles per foliage mesh: each layer kind's near mesh (and vertices), its simplified mid mesh, and its voxelized far mesh at a few resolutions.
 ##   godot --headless --path demo_eden -s res://foliage/_mesh_tris.gd
 
 
@@ -21,9 +21,12 @@ func _initialize() -> void:
 			if seen.has(kind) or l.is_grass():
 				continue
 			seen[kind] = true
-			var near := tris(EdenFoliageMeshes.build(l, 0).mesh)
+			var m: Mesh = EdenFoliageMeshes.build(l, 0).mesh
+			var near := tris(m)
+			var verts: int = m.surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size() if m.get_surface_count() > 0 else 0
+			var mid := tris(EdenFoliageMeshes.build_simplified(l, 0, 0.5))
 			var far := []
 			for res in [3, 5, 8]:
 				far.append(tris(EdenFoliageMeshes.build_far(l, 0, res)))
-			print("TRIS %-12s near %5d   far res3/5/8: %s" % [kind, near, far])
+			print("TRIS %-12s near %5d (%5d verts)  mid %5d   far res3/5/8: %s" % [kind, near, verts, mid, far])
 	quit()

@@ -1,7 +1,7 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene format=3 uid="uid://cee0ea5okkekt"]
 
-[ext_resource type="Script" path="res://Character/eden_player.gd" id="1_player"]
-[ext_resource type="PackedScene" path="res://Character/EDEN_Male.FBX" id="2_model"]
+[ext_resource type="Script" uid="uid://p8srukwsg8bh" path="res://Character/eden_player.gd" id="1_player"]
+[ext_resource type="PackedScene" path="res://Character/eden_character.tscn" id="2_character"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.3
@@ -9,10 +9,13 @@ height = 1.8
 
 [node name="EdenPlayer" type="CharacterBody3D"]
 script = ExtResource("1_player")
+footstep_volume_db = -12.0
 
 [node name="Collision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("CapsuleShape3D_body")
 
-[node name="Model" parent="." instance=ExtResource("2_model")]
+[node name="Model" type="Node3D" parent="."]
 transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
+
+[node name="EdenCharacter" parent="Model" instance=ExtResource("2_character")]

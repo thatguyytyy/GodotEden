@@ -169,6 +169,9 @@ func _build() -> void:
 	var raw := Transform3D(basis, f1.origin + basis.x * 2.3 + up * 0.15)
 	var f2 := builder.snapped("stone_floor", raw, aim)
 	_check(f2.origin.distance_to(f1.origin + basis.x * 2.0) < 0.02, "a floor snaps edge to edge (off by %.3f m)" % f2.origin.distance_to(f1.origin + basis.x * 2.0))
+	# Aimed at the floor's top near its edge (the ghost pushed up onto it): still level beside it, not a step up
+	var on_top := builder.snapped("stone_floor", Transform3D(basis, f1.origin + basis.x * 0.9 + up * 0.4), f1 * Vector3(0.8, 0.2, 0.0))
+	_check(on_top.origin.distance_to(f1.origin + basis.x * 2.0) < 0.02, "aimed at its top, a floor still snaps level beside it (off by %.3f m)" % on_top.origin.distance_to(f1.origin + basis.x * 2.0))
 	_check(builder.place_at("stone_floor", f2) == "", "placed it")
 	# A wall on the foundation's back edge
 	var edge := f1 * Vector3(0.0, 0.2, -1.0)

@@ -2,11 +2,11 @@
 
 [ext_resource type="Script" uid="uid://cq17jbsvkbhfl" path="res://_ocean_editor_probe.gd" id="1"]
 [ext_resource type="Shader" uid="uid://dfgwdf5l86w3o" path="res://shaders/EdenPlanet_LowPolyClimate.gdshader" id="2_g7vpv"]
-[ext_resource type="Texture2D" uid="uid://bi6ytmuq466vs" path="res://Panoramics/SkySphere_01.HDR" id="3_g7vpv"]
-[ext_resource type="Resource" uid="uid://p5u8mxk0bux2" path="res://foliage/eden_foliage_default.tres" id="foliage_config"]
-[ext_resource type="PackedScene" path="res://Character/eden_player.tscn" id="eden_player"]
-[ext_resource type="Script" path="res://settings/eden_graphics.gd" id="eden_graphics"]
-[ext_resource type="Script" path="res://settings/eden_calendar.gd" id="eden_calendar"]
+[ext_resource type="Texture2D" uid="uid://bi6ytmuq466vs" path="res://Panoramics/SkySphere_01.HDR" id="4_rpnc3"]
+[ext_resource type="Script" uid="uid://dxurpodhvruym" path="res://settings/eden_calendar.gd" id="eden_calendar"]
+[ext_resource type="Script" uid="uid://cno10atvlqqpx" path="res://settings/eden_graphics.gd" id="eden_graphics"]
+[ext_resource type="PackedScene" uid="uid://cee0ea5okkekt" path="res://Character/eden_player.tscn" id="eden_player"]
+[ext_resource type="EdenFoliageConfig" path="res://foliage/eden_foliage_default.tres" id="foliage_config"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_j51q1"]
 
@@ -31,6 +31,11 @@ shader = ExtResource("2_g7vpv")
 shader_parameter/eden_weather_planet = Vector4(0, 0, 0, 0)
 shader_parameter/eden_weather_params = Vector4(0, 0, 0, 0)
 shader_parameter/eden_weather_snow = Vector4(0, 0, 0, 0)
+shader_parameter/eden_snow_trail_frame = Vector4(0, 0, 0, 0)
+shader_parameter/eden_snow_trail_u = Vector4(0, 0, 0, 0)
+shader_parameter/eden_snow_trail_v = Vector4(0, 0, 0, 0)
+shader_parameter/eden_calendar = Vector4(0, 0, 0, 0)
+shader_parameter/eden_calendar_axis = Vector4(0, 1, 0, 0)
 shader_parameter/u_planet_radius = 40000.0
 shader_parameter/u_planet_center_world = Vector3(0, 0, 0)
 shader_parameter/u_planet_north_world = Vector3(0, 1, 0)
@@ -336,11 +341,12 @@ group_uniforms;
 
 group_uniforms DepthFog;
 // Metres either side of sea level in which a depth-buffer hit is assumed to be the ocean itself
-// rather than a sea floor (see depth_from_water_to_object). Must clear the wave crests and the
-// patch skirts hanging below them -- under that, the sea reports itself as its own bottom. The
-// cost of raising it is that genuine terrain this close to sea level reads as deep water, which
-// pushes the shoreline foam band that far out from the waterline.
-uniform float floor_reject_band : hint_range(0.0, 20.0) = 3.5;
+// rather than a sea floor (see depth_from_water_to_object). Off by default: every sea floor within
+// the band reads as deep water, which at 3.5 m painted a dark deep-water strip along every beach
+// and switched the shore foam off. A depth-hit capture (demo_eden/_shore_capture.gd --debug-depth,
+// 2026-09-28) found no depth reads landing on the water itself, in the open sea or at grazing
+// angles; raise it only if hard-edged shallow-colour slabs along the crests come back.
+uniform float floor_reject_band : hint_range(0.0, 20.0) = 0.0;
 uniform vec4 color_deep : source_color = vec4(0.02, 0.09, 0.26, 1.0);
 uniform vec4 color_shallow : source_color = vec4(0.05, 0.45, 0.5, 0.25);
 uniform float beers_law = 0.08;
@@ -731,6 +737,32 @@ vec4 ssr_trace(vec3 pos, vec3 n, vec3 v, mat4 proj, mat4 inv_proj) {
 	return vec4(0.0);
 }
 
+// Screen-space shadow for the sun/moon glint (the water is shadows_disabled, so without this the
+// sun reflected off the sea straight through the hills that hide it). Marches from the water point
+// toward the light; it is blocked where the depth buffer holds something farther from the camera
+// than the water pixel (so the player standing in front never casts a strip across the glint) yet
+// in front of the ray. Steps are exponential, 2 m out to ~4 km, to reach a ridge on the horizon.
+// ponytail: only what is on screen can block it; a shadow-cascade read would catch off-screen
+// occluders, at the per-pixel cost the shadows_disabled note above measured.
+float glint_occlusion(vec3 pos, vec3 l, mat4 proj, mat4 inv_proj) {
+	for (int i = 0; i < 14; i++) {
+		float t = 2.0 * pow(2000.0, float(i) / 13.0);
+		vec3 p = pos + l * t;
+		if (p.z > -0.05) {
+			return 1.0;
+		}
+		vec2 uv = ssr_project(p, proj);
+		if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+			return 1.0;
+		}
+		float scene_z = ssr_scene_z(uv, inv_proj);
+		if (scene_z < pos.z - 1.0 && scene_z - p.z > 1.0) {
+			return 0.0;
+		}
+	}
+	return 1.0;
+}
+
 // Godot's own directional-light BRDF (scene_forward_lights_inc.glsl: Burley diffuse, Schlick-GGX
 // specular with its D_GGX / V_GGX / f90 terms), for lighting_mode = Fast. View space throughout.
 void fast_direct_light(vec3 n, vec3 v, vec3 l, vec3 col, float spec_amount, float rough, float spec, float size,
@@ -916,6 +948,10 @@ void fragment() {
 	// hard-edged grey slabs lying across the sea.
 	bool above_water = distance(CAMERA_POSITION_WORLD, planet_center) > planet_radius + backface_altitude;
 	bool water_top = FRONT_FACING || above_water;
+	// Sun/moon glint scale: fades out over the last few tens of centimetres of water at the beach,
+	// where the screen shows the sand under it -- a full-strength sun blob there reads as the sun
+	// reflecting off the sand.
+	float shore_glint = 1.0;
 	if (!FRONT_FACING && above_water) {
 		// What IS worth rejecting up front: the far side of the planet, seen through the near
 		// surface. Shading it roughly doubled the ocean's cost. That is the half of the sphere whose
@@ -979,8 +1015,23 @@ void fragment() {
 			ref_uv_offset = (NORMAL.xy * ref_sample + ref_sample - 0.5) * r_final;
 		}
 		vec2 screen_uv = SCREEN_UV - ref_uv_offset;
+		if (!opaque_far && water_top) {
+			shore_glint = smoothstep(0.0, 0.6, z_behind);
+		}
+		// The refracted lookup can land on something IN FRONT of the water -- the player wading
+		// through it -- whose colour then got pasted into the sea beside them: a ghost copy of the
+		// character floating on the water. Only what is behind the surface may be refracted.
+		float z_diff_refracted = 1.0e9;
+		if (!opaque_far) {
+			z_diff_refracted = depth_from_water_to_object(screen_uv, INV_PROJECTION_MATRIX, INV_VIEW_MATRIX, VERTEX);
+			if (z_diff_refracted < 0.0) {
+				screen_uv = SCREEN_UV;
+				ref_uv_offset = vec2(0.0);
+				z_diff_refracted = z_behind;
+			}
+		}
 
-		ALPHA *= smoothstep(distance_fade_max, distance_fade_min, distance_from_camera);
+		ALPHA *=smoothstep(distance_fade_max, distance_fade_min, distance_from_camera);
 		ALPHA *= smoothstep(near_fade_min, near_fade_max, distance_from_camera);
 		float foam_fade_alpha = smoothstep(foam_fade_max, foam_fade_min, distance_from_camera);
 		float shore_fade_alpha = smoothstep(shore_fade_max, shore_fade_min, distance_from_camera);
@@ -1007,7 +1058,6 @@ void fragment() {
 		// distance (depth_fog_fade_*) -- which is also what makes the ocean read as deep blue from space.
 		float depth_blend_power = fog_by_distance;
 		if (depth_blend_power < 1.0) {
-			float z_diff_refracted = depth_from_water_to_object(screen_uv, INV_PROJECTION_MATRIX, INV_VIEW_MATRIX, VERTEX);
 			float depth_blend = clamp(1.0 - exp((z_diff_refracted + depth_offset) * -beers_law), 0.0, 1.0);
 			depth_blend_power = clamp(pow(depth_blend, 2.5) + depth_blend_power, 0.0, 1.0);
 		}
@@ -1136,7 +1186,13 @@ void fragment() {
 		}
 		for (int i = 0; i < fast_light_count; i++) {
 			vec3 l = normalize((VIEW_MATRIX * vec4(fast_light_direction[i], 0.0)).xyz);
-			fast_direct_light(nn, VIEW, l, fast_light_color[i], fast_light_specular[i], light_roughness, SPECULAR, fast_light_size[i], diffuse, spec_light);
+			vec3 s = vec3(0.0);
+			fast_direct_light(nn, VIEW, l, fast_light_color[i], fast_light_specular[i], light_roughness, SPECULAR, fast_light_size[i], diffuse, s);
+			// Only pixels with a visible glint pay for the march.
+			if (skirt <= 0.001 && max(s.r, max(s.g, s.b)) > 0.02) {
+				s *= glint_occlusion(VERTEX, l, PROJECTION_MATRIX, INV_PROJECTION_MATRIX);
+			}
+			spec_light += s * shore_glint;
 		}
 		ALBEDO = EMISSION + ALBEDO * diffuse + spec_light;
 	}
@@ -1158,8 +1214,17 @@ color_ramp = SubResource("Gradient_0032v")
 seamless = true
 
 [sub_resource type="Gradient" id="Gradient_g7vpv"]
+offsets = PackedFloat32Array(0, 0.65, 1)
+colors = PackedColorArray(1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_foam"]
+noise_type = 2
+seed = 3
+frequency = 0.03
+fractal_octaves = 3
 
 [sub_resource type="NoiseTexture2D" id="NoiseTexture2D_m2ix4"]
+noise = SubResource("FastNoiseLite_foam")
 color_ramp = SubResource("Gradient_g7vpv")
 seamless = true
 
@@ -1223,7 +1288,7 @@ shader_parameter/ripple_origin = PackedVector4Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 shader_parameter/ripple_up = PackedVector4Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 shader_parameter/ripple_east = PackedVector4Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 shader_parameter/ripple_zmax = PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-shader_parameter/ssr_steps = 16
+shader_parameter/ssr_steps = 8
 shader_parameter/ssr_max_distance = 150.0
 shader_parameter/ssr_thickness = 2.0
 shader_parameter/ssr_strength = 1.0
@@ -1264,20 +1329,20 @@ shader_parameter/refraction_scaling_distance_min = 50.0
 shader_parameter/uv_blend_sharpness = 8.0
 shader_parameter/uv_tri_scale = Vector3(36, 36, 36)
 shader_parameter/uv_tri_offset = Vector3(0, 0, 0)
-shader_parameter/floor_reject_band = 3.5
+shader_parameter/floor_reject_band = 0.0
 shader_parameter/color_deep = Color(0.02, 0.09, 0.26, 1)
 shader_parameter/color_shallow = Color(0.05, 0.45, 0.5, 0.25)
 shader_parameter/beers_law = 0.08
 shader_parameter/depth_offset = -1.0
 shader_parameter/albedo_snell = Color(0, 0.102, 0.239, 1)
 shader_parameter/snell_tightness = 0.6
-shader_parameter/WaveCount = 5
-shader_parameter/WaveSteepnesses = PackedFloat32Array(1, 0.05, 2, 1)
-shader_parameter/WaveAmplitudes = PackedFloat32Array(2, 0.004, 13.055, 0.7)
-shader_parameter/WaveDirectionsDegrees = PackedFloat32Array(0, 70.7, 150, 315)
-shader_parameter/WaveFrequencies = PackedFloat32Array(0.12, 0.3, 0.04, 0.04)
-shader_parameter/WaveSpeeds = PackedFloat32Array(2, 1, -0.5, 2)
-shader_parameter/WavePhases = PackedFloat32Array(1, 1, 1, 1)
+shader_parameter/WaveCount = 6
+shader_parameter/WaveSteepnesses = PackedFloat32Array(2.1, 1.8, 1.44, 1.02, 0.72, 0.54)
+shader_parameter/WaveAmplitudes = PackedFloat32Array(2.5, 2.5, 2.5, 2.5, 2.5, 2.5)
+shader_parameter/WaveDirectionsDegrees = PackedFloat32Array(0, 23, 329, 47, 348, 196)
+shader_parameter/WaveFrequencies = PackedFloat32Array(0.012, 0.019, 0.027, 0.041, 0.055, 0.068)
+shader_parameter/WaveSpeeds = PackedFloat32Array(0.86, 1.082, 1.29, 1.59, 1.841, 2.047)
+shader_parameter/WavePhases = PackedFloat32Array(0, 1.3, 2.9, 4.1, 0.7, 5.3)
 shader_parameter/UVWaveCount = 1
 shader_parameter/UVWaveSteepnesses = PackedFloat32Array(0.09, 0.08)
 shader_parameter/UVWaveAmplitudes = PackedFloat32Array(0.7, 0.5)
@@ -1326,32 +1391,47 @@ far_planet_radius = 40000.0
 mesh_block_size = 32
 
 [node name="EdenFoliage" type="EdenFoliage" parent="VoxelLodTerrain" unique_id=1086148909]
-up_mode = 1
 config = ExtResource("foliage_config")
-grass_fade_end = 100.0
-grass_wind_fade_start = 10.0
-grass_wind_fade_end = 20.0
+density_scale = 0.85
+grass_density_scale = 0.6
+blades_per_tuft = 5
+grass_lod_distance = 18.0
+far_blades_per_tuft = 3
+grass_fade_start = 30.0
+grass_fade_end = 45.0
+grass_wind_fade_start = 18.0
+grass_wind_fade_end = 29.25
+far_resolution_scale = 0.6
+far_visibility = 300.0
+detail_distance = 35.0
 tree_wind_fade_start = 10.0
 tree_wind_fade_end = 30.0
 
 [node name="EdenPlanetAtmosphere" type="EdenPlanetAtmosphere" parent="VoxelLodTerrain" unique_id=1264475597]
 planet_radius = 39900.0
-sun_light_energy = 1.7
 mie_scale_height = 75.0
 rayleigh_strength = 2.0
 ozone_strength = 1.0
 sun_angular_radius = 0.034906585
-moonb_direction = Vector3(0.79026794, -0.074757956, -0.60818404)
-sun_time_of_day = 0.653
+moonb_direction = Vector3(-0.8570763, -0.07475798, 0.50973666)
+sun_time_of_day = 0.134
+sun_declination_deg = 44.8
+sun_light_energy = 1.6958934
 moon_tint = Color(0.91090965, 0.9999996, 0.99624425, 1)
 moon_intensity = 0.14
-moon_angular_radius = 0.013613569
-moon_direction = Vector3(-0.83065856, -0.0017057533, -0.5567796)
-moon_glow_size = 0.012391837
+moon_angular_radius = 0.06981317
+moon_direction = Vector3(0.93987346, -0.033501465, 0.3398759)
+moon_earthshine = 0.0
+moon_style = 2
+moon_style_seed = -25.0
+moon_phase = 0.546875
+moon_light_energy = 0.39947754
+moon_glow_intensity = 0.25
+moon_halo_intensity = 0.01
 fog_density = 0.00052
 fog_sun_intensity = 0.0
 fog_sun_scatter = 0.0
-light_ray_samples = 128
+light_ray_samples = 164
 sun_ray_intensity = 2.0
 sun_ray_threshold = 0.1
 moon_ray_intensity = 0.3
@@ -1367,15 +1447,25 @@ wind_meridional_strength = 0.64
 cloud_drift_speed = 0.0015
 cloud_ambient = 0.5
 cloud_sunset_underlight = 0.25
+volumetric = true
+volume_resolution = 256
 
 [node name="EdenAmbience" type="EdenAmbience" parent="VoxelLodTerrain" unique_id=1827038537]
 tonemapper = 4
+ssao_enabled = false
 sun_shadows = false
 haze_density = 0.0006
+wind_speed = 0.3
 wind_heading = 265.0
-leaves_amount = 0.01
+gustiness = 0.2
+year_phase = 0.2578125
+snow_rate = 1.0
+melt_rate = 1.0
+thunder_chance = 0.8
+fireflies_amount = 0.02
+fireflies_brightness = 2.0
+leaves_amount = 0.1
 dust_amount = 0.08
-audio_in_editor = true
 wind_volume = 0.2
 leaves_volume = 0.01
 surf_volume = 0.1
@@ -1404,21 +1494,22 @@ ring_self_shadow = 0.9
 [node name="EdenParentPlanet" type="EdenParentPlanet" parent="." unique_id=1927229448]
 parent_planet_enabled = true
 parent_planet_direction = Vector3(0.615, 0.485, 0.866)
-parent_planet_angular_radius = 0.29007372
+parent_planet_angular_radius = 0.63617253
 parent_planet_pixel_scale = 400.0
+parent_planet_seed = 76.0
+parent_planet_style = 1
 
 [node name="EdenSpaceEnvironment" type="EdenSpaceEnvironment" parent="." unique_id=871991094]
-space_panorama = ExtResource("3_g7vpv")
+space_panorama = ExtResource("4_rpnc3")
 space_texture_dir = "res://Panoramics"
 use_placeholder_panorama = false
 
-[node name="EdenPlayer" parent="." instance=ExtResource("eden_player")]
+[node name="EdenPlayer" parent="." unique_id=1944245540 instance=ExtResource("eden_player")]
 transform = Transform3D(0.951433, 0, 0.307857, -0.306961, -0.076236, 0.948664, 0.02347, -0.99709, -0.072533, -12281.195, -3050.116, 37955.125)
 planet_path = NodePath("../VoxelLodTerrain")
 
-[node name="EdenGraphics" type="Node" parent="."]
+[node name="EdenGraphics" type="Node" parent="." unique_id=999457698]
 script = ExtResource("eden_graphics")
-quality = 1
 
-[node name="EdenCalendar" type="Node" parent="."]
+[node name="EdenCalendar" type="Node" parent="." unique_id=1127003506]
 script = ExtResource("eden_calendar")

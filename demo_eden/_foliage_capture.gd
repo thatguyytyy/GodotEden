@@ -39,9 +39,16 @@ func _initialize() -> void:
 			amb.set(k.substr(4), str_to_var(args[k]))
 		if k.begins_with("atmo_"): # --atmo_<export>=value overrides EdenPlanetAtmosphere exports
 			terrain.get_node("EdenPlanetAtmosphere").set(k.substr(5), str_to_var(args[k]))
+	var cal := scene.get_node_or_null("EdenCalendar")
+	for k in args: # --cal_<export>=value overrides EdenCalendar exports (e.g. --cal_month=10 --cal_running=false)
+		if k.begins_with("cal_") and cal:
+			cal.set(k.substr(4), str_to_var(args[k]))
 	if args.has("hide"): # --hide=<node path under the scene root>
 		scene.get_node(args.hide).visible = false
 	var gen: EdenPlanetGeneratorV4 = terrain.generator
+	for k in args: # --gen_<export>=value overrides the planet generator (e.g. --gen_cliff_strength=0)
+		if k.begins_with("gen_"):
+			gen.set(k.substr(4), str_to_var(args[k]))
 	var R: float = gen.planet_radius
 	var biome: String = args.get("biome", "temperate")
 
@@ -122,7 +129,7 @@ func _initialize() -> void:
 		cam_pos = up * (ground + 40.0) + down_dir * 220.0
 		look = up * ground - cam_pos
 	else:
-		cam_pos = up * (ground + float(args.get("alt", "2.5")))
+		cam_pos = up * (ground + float(args.get("alt", "2.5"))) + t * float(args.get("fwd", "0")) # --fwd=<m>: walk toward the view first
 		look = t * 50.0 - up * 6.0
 	var cam := Camera3D.new()
 	cam.far = 30000.0

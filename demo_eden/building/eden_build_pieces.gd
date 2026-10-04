@@ -128,7 +128,8 @@ static func _box(st: SurfaceTool, xf: Transform3D, size: Vector3) -> void:
 		var du := u * h
 		var dv := v * h
 		var q := [c - du - dv, c + du - dv, c + du + dv, c - du + dv]
-		for i in [0, 1, 2, 0, 2, 3]:
+		# Clockwise seen from outside: Godot's front face (counter-clockwise put every normal inward)
+		for i in [0, 2, 1, 0, 3, 2]:
 			st.add_vertex(xf * q[i])
 
 

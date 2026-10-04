@@ -67,6 +67,209 @@ public static partial class Module
         public double days_per_second;
     }
 
+    // What this world is (one row, id 0): its name, the planet generator's seed, its settings (the game's
+    // EdenWorldSettings as JSON: template, temperature, rainfall; one text column so new options need no schema
+    // change) and who created it. Set once by create_world, right after the host publishes the database.
+    [Table(Accessor = "world_meta", Public = true)]
+    public partial struct WorldMeta
+    {
+        [PrimaryKey]
+        public uint id;
+        public string name;
+        public long seed;
+        public Identity owner;
+        public Timestamp created_at;
+        public string settings;
+    }
+
+    // A player's inventory: item counts in the game's EdenMiner.ITEMS order. Kept between sessions like the
+    // player row (where they are), so rejoining puts them back as they left.
+    [Table(Accessor = "player_inventory", Public = true)]
+    public partial struct PlayerInventory
+    {
+        [PrimaryKey]
+        public Identity identity;
+        public System.Collections.Generic.List<int> counts;
+    }
+
+    // The server's world directory. Only used in the database named "eden-lobby" (the same module), which the game's
+    // world list reads on every server it knows: each hosted world lists itself there.
+    [Table(Accessor = "world_listing", Public = true)]
+    public partial struct WorldListing
+    {
+        [PrimaryKey]
+        public string database;
+        public string name;
+        public long seed;
+        public string host_name;
+        public Identity lister;
+        public Timestamp listed_at;
+    }
+
+    // The world's weather (one row, id 0): the host's EdenAmbience.get_weather_state() (weather_override, then the
+    // roaming storm cells). Only the world's owner sends it; everyone else's weather follows.
+    [Table(Accessor = "world_weather", Public = true)]
+    public partial struct WorldWeather
+    {
+        [PrimaryKey]
+        public uint id;
+        public System.Collections.Generic.List<float> state;
+    }
+
+    // Footprints in the snow: a stretch of someone's path (planet-relative x y z per print, ~0.4 m apart) and when it
+    // was walked. Kept for TrailLifetime so players arriving later still see (and can follow) them, fading by their
+    // age; the game's EdenAmbience.snow_trail_lifetime must match.
+    [Table(Accessor = "snow_trail", Public = true)]
+    public partial struct SnowTrail
+    {
+        [PrimaryKey, AutoInc]
+        public ulong id;
+        public Identity author;
+        public Timestamp at;
+        public System.Collections.Generic.List<float> points;
+    }
+
+    // Text chat: the last MaxChatKept messages. kind 0 is a said line, 1 an emote (/me), 2 an announcement (a
+    // player's own command output stays on their client). `name` is the sender's name when they spoke.
+    [Table(Accessor = "chat_message", Public = true)]
+    public partial struct ChatMessage
+    {
+        [PrimaryKey, AutoInc]
+        public ulong id;
+        public Identity sender;
+        public string name;
+        public string text;
+        public byte kind;
+        public Timestamp at;
+    }
+
+    // When each player last spoke (private), for the rate limit
+    [Table(Accessor = "chat_cooldown")]
+    public partial struct ChatCooldown
+    {
+        [PrimaryKey]
+        public Identity identity;
+        public long last_micros;
+    }
+
+    const int MaxChatText = 500;
+    const int MaxChatKept = 100;
+    const long ChatIntervalMicros = 300_000;
+
+    [Reducer]
+    public static void send_chat(ReducerContext ctx, string text, byte kind)
+    {
+        var p = ctx.Db.player.identity.Find(ctx.Sender) ?? throw new System.Exception("Join with set_name first");
+        text = text.Trim();
+        if (text.Length == 0 || text.Length > MaxChatText)
+        {
+            throw new System.Exception($"Messages are 1-{MaxChatText} characters");
+        }
+        foreach (var c in text)
+        {
+            if (char.IsControl(c))
+            {
+                throw new System.Exception("Messages are plain text");
+            }
+        }
+        if (kind > 1)
+        {
+            throw new System.Exception("Bad message kind");
+        }
+        var now = ctx.Timestamp.MicrosecondsSinceUnixEpoch;
+        if (ctx.Db.chat_cooldown.identity.Find(ctx.Sender) is ChatCooldown cd)
+        {
+            if (now - cd.last_micros < ChatIntervalMicros)
+            {
+                throw new System.Exception("Slow down");
+            }
+            ctx.Db.chat_cooldown.identity.Update(cd with { last_micros = now });
+        }
+        else
+        {
+            ctx.Db.chat_cooldown.Insert(new ChatCooldown { identity = ctx.Sender, last_micros = now });
+        }
+        var row = ctx.Db.chat_message.Insert(new ChatMessage { sender = ctx.Sender, name = p.name, text = text, kind = kind, at = ctx.Timestamp });
+        if (row.id > MaxChatKept)
+        {
+            var oldest = row.id - MaxChatKept;
+            foreach (var m in System.Linq.Enumerable.ToList(ctx.Db.chat_message.Iter()))
+            {
+                if (m.id <= oldest)
+                {
+                    ctx.Db.chat_message.id.Delete(m.id);
+                }
+            }
+        }
+    }
+
+    const long TrailLifetimeMicros = 600L * 1000000L;
+    const int MaxTrailPoints = 64;
+
+    [Reducer]
+    public static void add_snow_trail(ReducerContext ctx, System.Collections.Generic.List<float> points)
+    {
+        if (points.Count == 0 || points.Count % 3 != 0 || points.Count > MaxTrailPoints * 3)
+        {
+            throw new System.Exception("Bad trail");
+        }
+        for (int i = 0; i < points.Count; i += 3)
+        {
+            CheckReach(ctx, points[i], points[i + 1], points[i + 2]);
+        }
+        ctx.Db.snow_trail.Insert(new SnowTrail { author = ctx.Sender, at = ctx.Timestamp, points = points });
+        // Faded ones go
+        var cutoff = ctx.Timestamp.MicrosecondsSinceUnixEpoch - TrailLifetimeMicros;
+        foreach (var t in System.Linq.Enumerable.ToList(ctx.Db.snow_trail.Iter()))
+        {
+            if (t.at.MicrosecondsSinceUnixEpoch < cutoff)
+            {
+                ctx.Db.snow_trail.id.Delete(t.id);
+            }
+        }
+    }
+
+    [Reducer]
+    public static void set_weather(ReducerContext ctx, System.Collections.Generic.List<float> state)
+    {
+        if (ctx.Db.world_meta.id.Find(0) is WorldMeta meta && meta.owner != ctx.Sender)
+        {
+            throw new System.Exception("Only the host sets the weather");
+        }
+        if (state.Count > 4096 || state.Exists(f => !float.IsFinite(f)))
+        {
+            throw new System.Exception("Bad weather");
+        }
+        var row = new WorldWeather { id = 0, state = state };
+        if (ctx.Db.world_weather.id.Find(0) is null)
+        {
+            ctx.Db.world_weather.Insert(row);
+        }
+        else
+        {
+            ctx.Db.world_weather.id.Update(row);
+        }
+    }
+
+    // Players connected when the server was stopped (the game kills it at quit, or it crashed) never got
+    // ClientDisconnected, so their rows still say online. The host calls this right after starting the server, when
+    // nobody can be connected yet.
+    [Reducer]
+    public static void all_offline(ReducerContext ctx)
+    {
+        if (ctx.Db.world_meta.id.Find(0) is WorldMeta meta && meta.owner != ctx.Sender)
+        {
+            throw new System.Exception("Only the host");
+        }
+        foreach (var p in System.Linq.Enumerable.ToList(ctx.Db.player.Iter()))
+        {
+            if (p.online)
+            {
+                ctx.Db.player.identity.Update(p with { online = false });
+            }
+        }
+    }
+
     [Reducer(ReducerKind.Init)]
     public static void Init(ReducerContext ctx)
     {
@@ -101,7 +304,7 @@ public static partial class Module
         "wood_stairs", "stone_floor", "stone_wall", "stone_pillar" };
 
     const int MaxName = 24;
-    const float MaxRadius = 2.0f;
+    const float MaxRadius = 3.0f;
     // How far from where the server last saw a player they may edit (the client's reach is 6 m)
     const double MaxEditReach = 12.0;
     static readonly string[] States = { "idle", "walk", "run", "crouch_idle", "crouch_walk", "jump", "fall", "swim", "tread" };
@@ -196,6 +399,86 @@ public static partial class Module
         ctx.Db.build_piece.id.Delete(id);
     }
 
+    // Names the world and fixes its seed and settings. Only the first call counts (the host's, right after publishing).
+    [Reducer]
+    public static void create_world(ReducerContext ctx, string name, long seed, string settings)
+    {
+        if (ctx.Db.world_meta.id.Find(0) is not null)
+        {
+            return;
+        }
+        name = name.Trim();
+        if (name.Length == 0 || name.Length > 40)
+        {
+            throw new System.Exception("World names are 1-40 characters");
+        }
+        if (settings.Length > 1024)
+        {
+            throw new System.Exception("World settings are at most 1024 characters");
+        }
+        ctx.Db.world_meta.Insert(new WorldMeta { id = 0, name = name, seed = seed, owner = ctx.Sender, created_at = ctx.Timestamp, settings = settings });
+    }
+
+    const int MaxItems = 16;
+    const int MaxCount = 100000;
+
+    [Reducer]
+    public static void set_inventory(ReducerContext ctx, System.Collections.Generic.List<int> counts)
+    {
+        if (ctx.Db.player.identity.Find(ctx.Sender) is null)
+        {
+            throw new System.Exception("Join with set_name first");
+        }
+        if (counts.Count > MaxItems || counts.Exists(c => c < 0 || c > MaxCount))
+        {
+            throw new System.Exception("Bad inventory");
+        }
+        var row = new PlayerInventory { identity = ctx.Sender, counts = counts };
+        if (ctx.Db.player_inventory.identity.Find(ctx.Sender) is null)
+        {
+            ctx.Db.player_inventory.Insert(row);
+        }
+        else
+        {
+            ctx.Db.player_inventory.identity.Update(row);
+        }
+    }
+
+    // Lists (or relists) a hosted world in this server's directory. A listing belongs to whoever made it: only they
+    // can change or remove it.
+    [Reducer]
+    public static void list_world(ReducerContext ctx, string database, string name, long seed, string host_name)
+    {
+        if (database.Length == 0 || database.Length > 64 || name.Length == 0 || name.Length > 40 || host_name.Length > MaxName)
+        {
+            throw new System.Exception("Bad listing");
+        }
+        var row = new WorldListing { database = database, name = name, seed = seed, host_name = host_name, lister = ctx.Sender, listed_at = ctx.Timestamp };
+        if (ctx.Db.world_listing.database.Find(database) is WorldListing old)
+        {
+            if (old.lister != ctx.Sender)
+            {
+                throw new System.Exception("Listed by someone else");
+            }
+            ctx.Db.world_listing.database.Update(row);
+        }
+        else
+        {
+            ctx.Db.world_listing.Insert(row);
+        }
+    }
+
+    [Reducer]
+    public static void unlist_world(ReducerContext ctx, string database)
+    {
+        var old = ctx.Db.world_listing.database.Find(database) ?? throw new System.Exception("Not listed");
+        if (old.lister != ctx.Sender)
+        {
+            throw new System.Exception("Listed by someone else");
+        }
+        ctx.Db.world_listing.database.Delete(database);
+    }
+
     [Reducer]
     public static void add_voxel_edit(ReducerContext ctx, double x, double y, double z, float radius, byte mode, byte material)
     {
@@ -207,7 +490,7 @@ public static partial class Module
         {
             throw new System.Exception("Out of reach");
         }
-        if (mode > 2 || material > 6 || !(radius > 0.1f && radius <= MaxRadius))
+        if (mode > 6 || material > 6 || !(radius > 0.1f && radius <= MaxRadius))
         {
             throw new System.Exception("Bad edit");
         }

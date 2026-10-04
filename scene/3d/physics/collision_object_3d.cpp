@@ -106,6 +106,18 @@ void CollisionObject3D::_notification(int p_what) {
 			_update_pickable();
 		} break;
 
+		case NOTIFICATION_DEBUG_COLLISIONS_HINT_CHANGED: {
+			if (_are_collision_shapes_visible()) {
+				debug_shape_old_transform = get_global_transform();
+				for (const KeyValue<uint32_t, ShapeData> &E : shapes) {
+					debug_shapes_to_update.insert(E.key);
+				}
+				_update_debug_shapes();
+			} else if (debug_shapes_count > 0) {
+				_clear_debug_shapes();
+			}
+		} break;
+
 		case NOTIFICATION_EXIT_WORLD: {
 			bool disabled = !is_enabled();
 

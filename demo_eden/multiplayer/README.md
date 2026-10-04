@@ -11,6 +11,28 @@ Players on the same planet see each other move and animate, and every dig or pla
 - `eden_remote_player.gd` (EdenRemotePlayer): another player's avatar. It uses the same model and procedural
   animator and moves smoothly between updates.
 
+## Chat
+
+Enter (or `/`) opens the chat box, Enter sends, Esc closes, Up/Down recall earlier lines (`eden_chat.gd`, EdenChat).
+Lines go through the server's `chat_message` table (last 100 kept, 500 characters, plain text, one line per 0.3 s per
+player), so everyone sees them and joiners get the recent history. A line starting with `/` is a command, shown only
+to whoever ran it: `/help [command]`, `/me <action>` (shared), `/who`, `/name <new name>`, `/tp <player>`, `/pos`,
+`/time`, `/clear`. `//text` says a line that begins with a slash. Add commands in `_register_commands()`.
+
+## From the main menu
+
+The demo starts at the main menu (menu/main_menu.tscn). PLAY lists the worlds on this computer and on any server
+you add (by address). HOST NEW creates a world here: it starts a local SpacetimeDB (port 3180, data in the
+game's user folder) if none is running, publishes this module under a new database name, sets the world's name and
+seed (create_world) and lists it in the server's eden-lobby database (the same module; its world_listing table is
+the server's directory). JOIN loads the planet with the world's seed. The world is the save: SpacetimeDB keeps the
+players (where they are), their inventories (player_inventory), dug terrain, buildings and the clock, so joining
+again puts you back where you left. The game stops a server it started when it quits.
+
+Needs the spacetime CLI to host; joining only needs the server's address. After changing server/spacetimedb/Lib.cs,
+run `spacetime build -p demo_eden/multiplayer/server/spacetimedb` (hosting publishes the prebuilt .wasm).
+Test: `godot --path demo_eden -s res://menu/_worlds_test.gd -- --stdb-port=3191 --stdb-data=<dir>`.
+
 ## Run it
 
 ```

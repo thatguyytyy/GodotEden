@@ -41,6 +41,12 @@ extends Resource
 @export_range(0, 256, 1) var light_ray_samples := 128
 ## Ocean screen-space reflection ray steps; 0 = no reflections
 @export_range(0, 64, 1) var ocean_reflection_steps := 16
+## Raymarched clouds (EdenCloudShell.volumetric) instead of the stylised layers: ~2-6 ms more at 1080p on a GTX 750 Ti
+@export var volumetric_clouds := false
+## Volumetric clouds: flat-sided low-poly facets or soft, smooth cloud (EdenCloudShell.vol_facet_mix)
+@export_enum("Low-poly", "Smooth") var cloud_style := 0
+## Volumetric clouds: raymarch samples per pixel (EdenCloudShell.vol_steps): fewer is faster, more is finer
+@export_range(16, 128, 8) var cloud_steps := 48
 
 
 static func make(p_name: String, values: Dictionary) -> EdenGraphicsPreset:
@@ -65,5 +71,5 @@ static func defaults() -> Array[EdenGraphicsPreset]:
 				foliage_far_visibility = 400.0, ssao = true, glow = true, light_ray_samples = 128, ocean_reflection_steps = 16}),
 		make("Ultra", {render_scale = 1.0, upscaler = 1, antialiasing = 2, grass_density = 1.3, grass_distance = 85.0,
 				grass_blades = 7, grass_lod_distance = 35.0, grass_far_blades = 5, foliage_density = 1.0, foliage_detail_distance = 110.0, foliage_far_detail = 1.2,
-				foliage_far_visibility = 650.0, ssao = true, glow = true, light_ray_samples = 128, ocean_reflection_steps = 24}),
+				foliage_far_visibility = 650.0, ssao = true, glow = true, light_ray_samples = 128, ocean_reflection_steps = 24, volumetric_clouds = true}),
 	]

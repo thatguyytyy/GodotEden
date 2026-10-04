@@ -70,6 +70,12 @@ public:
 		float valley_depth = 45.0f; // m
 		float valley_width = 0.07f; // 0..1, fraction of the valley noise range
 		float valley_scale = 4500.0f; // spacing of the valley network, m
+		// Rugged: crags (ridged noise: sharp crests, creased gullies) on dry ground, full in mountain regions, a touch in
+		// lowlands. Without them every slope was one smooth ramp.
+		float rugged_strength = 1.0f; // 0 smooth .. 1 (2 = twice as craggy)
+		float rugged_lowland = 0.15f; // strength multiplier in lowlands
+		float rugged_height = 26.0f; // m, crest to gully at full strength (about +-)
+		float rugged_scale = 140.0f; // m, size of the biggest crags (finer ones nest inside)
 		// Erosion
 		bool use_erosion = true;
 		float erosion_height_scale = 1.5f;
@@ -84,6 +90,11 @@ public:
 		float biome_contrast = 0.6f;
 		float ridge_rock_strength = 0.8f;
 		float gully_sediment_strength = 0.6f;
+		// Whole-world climate, added to every point's temperature / moisture (0..1): colder or hotter, drier or wetter
+		// worlds (the game's world settings). Everything reading climate from the generator follows: biomes,
+		// materials, snow, foliage, weather.
+		float temperature_offset = 0.0f;
+		float moisture_offset = 0.0f;
 	};
 
 	Result generate_block(VoxelQueryData input) override;

@@ -8,12 +8,15 @@ extends CharacterBody3D
 ## anywhere above the ground, it waits for collision to load under it and drops onto it.
 ##
 ## Controls (actions are created at runtime if the project doesn't define them, see ensure_input_actions()):
-##   WASD move, Shift run, Ctrl/C crouch, Space jump, mouse look (click to capture), Esc settings (EdenSettingsMenu);
+##   WASD move, Shift run (double-tap and hold: sprint), Ctrl/C crouch, Space jump, mouse look (click to capture),
+##   Esc settings (EdenSettingsMenu);
 ##   N / B cycle the weather around you (EdenAmbience), L strikes lightning, F1 hides the help;
-##   hold LMB dig, RMB place, 1-5 / wheel pick a material, Tab inventory (EdenMiner).
+##   hold LMB dig, RMB place, 1-5 / wheel pick a material, Tab inventory (EdenMiner);
+##   F2-F8 debug modes: god, creative, fly, no-clip, collision shapes, draw modes, stats (EdenDebug).
 ##
-## Animation is procedural (EdenAnimator, poses from EdenGait): continuous walk-to-run blending driven by the ground
-## speed, crouch/air/landing layers, head look toward the camera; the body leans into acceleration and turns.
+## The model is the Synty character (eden_character.tscn): its AnimationTree state machine (EdenCharacterAnim) blends
+## idle/walk/run/sprint by ground speed, direction and slope, crouch, jump/fall/land. The body turns toward where it
+## moves; while it turns (and when backing up) the feet step the actual direction with the strafe clips.
 ## Footsteps are synthesised per ground material (AudioStreamEdenAmbience.trigger_footstep).
 
 signal landed
@@ -40,7 +43,11 @@ signal landed
 @export var player_name := "Explorer"
 @export_group("Movement")
 @export var walk_speed := 1.6
-@export var run_speed := 5.5
+## Shift: the Synty run's own pace
+@export var run_speed := 2.6
+## Double-tap Shift and hold the second press: a sprint for up to sprint_duration seconds, then back to the run
+@export var sprint_speed := 7.0
+@export var sprint_duration := 15.0
 @export var crouch_speed := 1.0
 @export var jump_speed := 5.0
 @export var gravity := 9.8
@@ -48,16 +55,12 @@ signal landed
 @export var acceleration := 10.0
 @export var air_control := 1.5
 ## How quickly the body turns to face where it moves
-@export var turn_speed := 10.0
+@export var turn_speed := 5.0
 @export_group("Swimming")
 @export var swim_speed := 1.8
 @export var swim_sprint_speed := 3.2
 ## How deep the feet float below the surface at rest (buoyancy balances gravity there): head and shoulders out
 @export var float_depth := 1.35
-@export_group("Look")
-## The FBX paints the suit black and the visor grey in vertex colours: these replace them
-@export var suit_color := Color(0.34, 0.4, 0.47)
-@export var visor_color := Color(0.8, 0.88, 0.95)
 @export_group("Camera")
 @export var mouse_sensitivity := 0.003
 @export var camera_distance := 4.0
@@ -71,9 +74,16 @@ const STAND_HEIGHT := 1.8
 const CROUCH_HEIGHT := 1.2
 const RADIUS := 0.3
 const COYOTE_TIME := 0.15
+## Seconds from letting go of Shift to pressing it again that start a sprint
+const DOUBLE_TAP := 0.35
+## Moving further than this from the camera's heading (cos ~110 deg) backs up instead of turning round
+const BACKPEDAL_DOT := -0.34
 
 var crouching := false
 var running := false
+var sprinting := false
+var _sprint_time := 0.0
+var _last_run_release := -10.0
 var swimming := false
 var _cam_height := 1.55
 ## True once terrain collision is under the spawn point (gravity is held off until then)
@@ -83,18 +93,25 @@ var _planet: Node3D
 var _yaw := 0.0
 var _pitch := -0.25
 var _facing := Vector3.FORWARD
-var animator: EdenAnimator
+var animator: EdenCharacterAnim
 var miner: EdenMiner
 var net: EdenNet
+## The chat box is taking keystrokes (EdenChat): no movement
+var typing := false
 var builder: EdenBuilder
 var graphics: EdenGraphics
 var calendar: EdenCalendar
 var calendar_panel: EdenCalendarPanel
 var settings_menu: EdenSettingsMenu
+var debug: EdenDebug
 var _model: Node3D
-var _model_rest: Transform3D
-var _lean_accel := Vector3.ZERO
-var _prev_horizontal := Vector3.ZERO
+## Between the spring arm and the camera: lifts the camera clear of lying snow (the arm only sees solid ground)
+var _cam_lift: Node3D
+var _snow_lift := 0.0
+var _cam_anchor := Vector3.ZERO
+var _last_press: Variant = null
+## Footprints in snow (world positions, 0.4 m apart) not yet sent by EdenNet
+var snow_prints := PackedVector3Array()
 var _steps: AudioStreamEdenAmbience
 var _steps_player: AudioStreamPlayer
 var _pivot: Node3D
@@ -109,13 +126,14 @@ var _scene_ready := false
 ## Radius of the sea surface (the generator's planet_radius + sea_level); INF when the planet has no sea
 var _sea_radius := -INF
 var _hud: Label
+## Facing to take once the ground is found after restore_position (NAN: face north as usual)
+var _restore_yaw := NAN
 var _ambience: Node
 
 
 func _ready() -> void:
 	# Only when part of the scene being played. Tools that load a scene holding a player just to render or
 	# measure it (they have no current scene) keep their own camera and viewers; the player stays put.
-	_apply_look()
 	var main := get_tree().current_scene
 	if main == null or not (main == self or main.is_ancestor_of(self)):
 		set_physics_process(false)
@@ -124,19 +142,17 @@ func _ready() -> void:
 		return
 	ensure_input_actions()
 	_planet = get_node_or_null(planet_path) as Node3D
+	_apply_session()
 	_model = $Model
-	_model_rest = _model.transform
-	animator = EdenAnimator.new()
-	animator.walk_speed = walk_speed
+	animator = _model.get_node("EdenCharacter/AnimationTree")
 	animator.run_speed = run_speed
-	var skel: Skeleton3D = _model.find_children("*", "Skeleton3D", true, false)[0]
-	skel.add_child(animator)
 	animator.step.connect(_on_step)
 	_collision = $Collision
 	_shape = _collision.shape
 	# ~40 km from the origin a float resolves ~4 mm, coarser than the default 1 mm margin: the body couldn't
 	# separate from the floor to slide along it and stood still with every move blocked
 	safe_margin = 0.04
+	collision_mask |= EdenFoliage.COLLISION_LAYER # walk into trunks and rocks (the camera arm doesn't see them)
 	floor_snap_length = 0.4
 	floor_max_angle = deg_to_rad(50.0)
 	# Camera rig: a pivot above the character (planet-aligned, set every frame), a spring arm that pulls the
@@ -144,6 +160,7 @@ func _ready() -> void:
 	_pivot = Node3D.new()
 	_pivot.name = "CameraPivot"
 	_pivot.top_level = true
+	_pivot.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF # placed every frame, below
 	add_child(_pivot)
 	_arm = SpringArm3D.new()
 	_arm.spring_length = camera_distance
@@ -153,7 +170,9 @@ func _ready() -> void:
 	_camera = Camera3D.new()
 	_camera.far = 400000.0
 	_camera.near = 0.1
-	_arm.add_child(_camera)
+	_cam_lift = Node3D.new()
+	_arm.add_child(_cam_lift)
+	_cam_lift.add_child(_camera)
 	_camera.current = true
 	# Footsteps: the ambience synth with its beds silent, used only for its one-shot steps
 	_steps = AudioStreamEdenAmbience.new()
@@ -172,6 +191,10 @@ func _setup_scene() -> void:
 	if _scene_ready or _planet == null or Engine.is_editor_hint():
 		return
 	_scene_ready = true
+	debug = EdenDebug.new()
+	debug.name = "Debug"
+	add_child(debug)
+	debug.setup(self)
 	for action in [["weather_next", KEY_N], ["weather_prev", KEY_B], ["lightning", KEY_L], ["toggle_help", KEY_F1], ["calendar", KEY_K]]:
 		if not InputMap.has_action(action[0]):
 			InputMap.add_action(action[0])
@@ -228,6 +251,7 @@ func _setup_scene() -> void:
 		_hud.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 		_hud.add_theme_constant_override("outline_size", 6)
 		layer.add_child(_hud)
+		_hud.visible = EdenOptions.show_help
 	if enable_mining and _planet is VoxelLodTerrain:
 		miner = EdenMiner.new()
 		miner.name = "Miner"
@@ -253,33 +277,29 @@ func _setup_scene() -> void:
 		net.setup(self)
 
 
-const LOOK_SHADER := """
-shader_type spatial;
-uniform vec3 suit_color : source_color;
-uniform vec3 visor_color : source_color;
-void fragment() {
-	float visor = step(0.25, COLOR.r); // vertex colour: black suit, grey visor
-	ALBEDO = mix(suit_color, visor_color, visor);
-	ROUGHNESS = mix(0.75, 0.2, visor);
-	METALLIC = mix(0.05, 0.5, visor);
-}
-"""
+## The world the main menu picked (EdenSession): online or not and where, and the name others see (the planet's
+## seed is set by the scene before the terrain streams: eden_play.gd). Run straight from the editor, the scene's own
+## settings stay.
+func _apply_session() -> void:
+	EdenOptions.ensure_loaded()
+	player_name = EdenOptions.player_name
+	if not EdenSession.active:
+		return
+	online = not EdenSession.offline
+	if online:
+		server_url = EdenSession.ws_url()
+		database = EdenSession.database
 
 
-func _apply_look() -> void:
-	apply_look(get_node("Model"), suit_color, visor_color)
-
-
-## The suit/visor look on an EDEN_Male model (EdenRemotePlayer uses it too)
-static func apply_look(model: Node, suit: Color, visor: Color) -> void:
-	var sh := Shader.new()
-	sh.code = LOOK_SHADER
-	var mat := ShaderMaterial.new()
-	mat.shader = sh
-	mat.set_shader_parameter("suit_color", suit)
-	mat.set_shader_parameter("visor_color", visor)
-	for mi in model.find_children("*", "MeshInstance3D", true, false):
-		(mi as MeshInstance3D).material_override = mat
+## Rejoining a saved world: the player goes back where the server last saw them (planet-relative) and waits for the
+## ground to load there
+func restore_position(planet_pos: Vector3, yaw: float) -> void:
+	var up := planet_pos.normalized()
+	global_position = _center() + planet_pos + up * 0.3
+	velocity = Vector3.ZERO
+	ready_to_move = false
+	_restore_yaw = yaw
+	reset_physics_interpolation()
 
 
 func set_planet(planet: Node3D) -> void:
@@ -320,7 +340,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		calendar_panel.toggle()
 	if _hud and event.is_action_pressed("toggle_help"):
 		_hud.visible = not _hud.visible
-	if event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+	# (a click on a panel's empty space reaches here too: it mustn't hide the pointer while the panel is up)
+	if event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and not ui_open():
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event is InputEventKey and event.pressed and event.physical_keycode == KEY_ESCAPE and settings_menu and not settings_menu.visible:
 		settings_menu.open()
@@ -328,8 +349,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and event.physical_keycode == KEY_ESCAPE and settings_menu == null:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		_yaw -= event.relative.x * mouse_sensitivity
-		_pitch = clampf(_pitch - event.relative.y * mouse_sensitivity, camera_min_pitch, camera_max_pitch)
+		var sens := mouse_sensitivity * EdenOptions.mouse_sensitivity
+		_yaw -= event.relative.x * sens
+		_pitch = clampf(_pitch - event.relative.y * sens * (-1.0 if EdenOptions.invert_y else 1.0), camera_min_pitch, camera_max_pitch)
 
 
 ## Where and when you are, in plain terms: date, local time and season; the weather, temperature, wind and daylight
@@ -386,6 +408,11 @@ func _center() -> Vector3:
 	return _planet.global_position if _planet else Vector3.ZERO
 
 
+## Metres above sea level (above the planet's centre when it has no sea)
+func altitude() -> float:
+	return global_position.distance_to(_center()) - (_sea_radius if is_finite(_sea_radius) else 0.0)
+
+
 ## Planet north projected onto the ground here: the reference the camera heading is measured from
 static func _north(up: Vector3) -> Vector3:
 	var n := Vector3.UP - up * up.y
@@ -402,8 +429,11 @@ func _physics_process(delta: float) -> void:
 	var right := heading.cross(up)
 
 	var input := Input.get_vector("move_left", "move_right", "move_back", "move_forward")
-	if settings_menu and settings_menu.visible:
+	if typing or (settings_menu and settings_menu.visible):
 		input = Vector2.ZERO
+	if debug and debug.flying():
+		_fly_step(delta, input, heading, right, up)
+		return
 	var wish := heading * input.y + right * input.x
 	if wish.length_squared() > 1.0:
 		wish = wish.normalized()
@@ -412,9 +442,12 @@ func _physics_process(delta: float) -> void:
 	# between trunks): jumping, crouching and the animations use it, gravity uses the real floor contact
 	var on_floor := is_on_floor()
 	var grounded := on_floor or (_air_time < COYOTE_TIME and _jump_time < 0.0)
-	_set_crouching(Input.is_action_pressed("crouch") and grounded)
-	running = Input.is_action_pressed("sprint") and not crouching and input.length() > 0.1
-	var speed := crouch_speed if crouching else (run_speed if running else walk_speed)
+	_set_crouching(_held("crouch") and grounded)
+	var backpedal := wish.dot(heading) < BACKPEDAL_DOT * wish.length()
+	running = _held("sprint") and not crouching and input.length() > 0.1
+	_update_sprint(delta, running and not backpedal)
+	var speed := crouch_speed if crouching else (sprint_speed if sprinting else (run_speed if running else walk_speed))
+	speed *= _snow_slowdown(global_position + wish * 0.4)
 
 	var vertical := velocity.dot(up)
 	var horizontal := velocity - up * vertical
@@ -439,16 +472,18 @@ func _physics_process(delta: float) -> void:
 		vertical = minf(vertical, 0.0)
 	else:
 		vertical -= gravity * delta
-	if grounded and Input.is_action_just_pressed("jump") and not crouching:
+	if grounded and not typing and Input.is_action_just_pressed("jump") and not crouching:
 		vertical = jump_speed
 		_jump_time = 0.0
 		_air_time = COYOTE_TIME # no second jump from the grace window
 	velocity = horizontal + up * vertical
 	var fall_speed := -vertical
 
-	# Face where we move (smoothly), always upright on the planet
+	# Face where we move (smoothly), always upright on the planet; backing up (away from the camera's heading) keeps
+	# facing ahead and walks backward instead of turning round
 	if wish.length_squared() > 0.01:
-		_facing = _facing.slerp(wish.normalized(), minf(1.0, turn_speed * delta))
+		var target := -wish.normalized() if backpedal else wish.normalized()
+		_facing = _facing.slerp(target, minf(1.0, turn_speed * delta))
 	_facing = (_facing - up * _facing.dot(up))
 	_facing = _facing.normalized() if _facing.length_squared() > 1e-6 else heading
 	global_basis = Basis.looking_at(_facing, up)
@@ -482,6 +517,12 @@ func _physics_process(delta: float) -> void:
 		_on_step(0, clampf(fall_speed / 6.0, 0.4, 1.3))
 	_was_on_floor = is_on_floor()
 	_update_animation(horizontal, delta)
+	# Walking through lying snow presses a path into it
+	_last_press = press_snow_stroke(_ambience, _last_press, global_position, _air_time < 0.3)
+	# ...and keeps a footprint every 0.4 m of it for EdenNet to share (the world's record of who walked where)
+	if net and _ambience and _air_time < 0.3 and float(_ambience.get_snow_depth_at(global_position)) > 0.0 \
+			and (snow_prints.is_empty() or snow_prints[-1].distance_to(global_position) >= 0.4):
+		snow_prints.append(global_position)
 
 
 ## How far below the sea surface the feet are (negative above it)
@@ -498,13 +539,13 @@ func water_depth() -> float:
 # up, Crouch dives. Movement follows the camera heading, slower than on land.
 func _swim_step(delta: float, wish: Vector3, input: Vector2, depth: float, up: Vector3, horizontal: Vector3, vertical: float) -> void:
 	_set_crouching(false)
-	running = Input.is_action_pressed("sprint") and input.length() > 0.1
+	running = _held("sprint") and input.length() > 0.1
 	var speed := swim_sprint_speed if running else swim_speed
 	horizontal = horizontal.move_toward(wish * speed, 3.0 * speed * delta)
 	var a := gravity * (clampf(depth / float_depth, 0.0, 1.6) - 1.0) - 2.2 * vertical
-	if Input.is_action_pressed("jump"):
+	if _held("jump"):
 		a += 5.0
-	if Input.is_action_pressed("crouch"):
+	if _held("crouch"):
 		a -= 9.0
 	vertical += a * delta
 	velocity = horizontal + up * vertical
@@ -524,10 +565,13 @@ func _wait_for_ground(up: Vector3) -> void:
 		return
 	if not hit.is_empty():
 		global_position = hit.position + up * 0.05
+		reset_physics_interpolation()
 	if water_depth() > float_depth: # the ground is the sea floor, or not loaded under the sea: float at the surface
 		global_position = _center() + up * (_sea_radius - float_depth)
+		reset_physics_interpolation()
 	ready_to_move = true
-	_facing = _north(up)
+	_facing = _north(up) if is_nan(_restore_yaw) else _north(up).rotated(up, _restore_yaw)
+	_restore_yaw = NAN
 	global_basis = Basis.looking_at(_facing, up)
 
 
@@ -537,15 +581,29 @@ func _wait_for_ground(up: Vector3) -> void:
 func _rescue_if_buried(up: Vector3) -> void:
 	if Engine.get_physics_frames() % 20 != 0 or not (_air_time > 1.0 or swimming):
 		return
-	var q := PhysicsRayQueryParameters3D.create(global_position + up * 0.5, global_position + up * 300.0, collision_mask, [get_rid()])
-	var hit := get_world_3d().direct_space_state.intersect_ray(q)
-	if hit.is_empty() or not (hit.collider == _planet or (hit.collider is Node and _planet.is_ancestor_of(hit.collider))):
+	# Only when the body is really inside solid ground: a dug pit or a cave has terrain overhead too, and the
+	# generator's surface knows nothing of digging (putting the player there dropped them back into their pit)
+	var vt: VoxelTool = _planet.get_voxel_tool() if _planet is VoxelLodTerrain else null
+	if vt == null:
 		return
-	var gen: Object = _planet.get("generator")
-	var h: float = (hit.position - _center()).length() + 2.0
-	if gen and gen.has_method("sample_surface"):
-		h = maxf(h, float(gen.planet_radius) + float(gen.sample_surface(up).height) + 2.0)
-	global_position = _center() + up * h
+	vt.channel = VoxelBuffer.CHANNEL_SDF
+	var local := _planet.to_local(global_position + up * 0.9)
+	var local_up := (_planet.global_basis.inverse() * up).normalized()
+	var sdf := vt.get_voxel_f(Vector3i(local.round()))
+	if sdf > -0.3:
+		return
+	# Up through the solid to the (edited) surface: the SDF says how far it is at least. (Rays don't work from in
+	# here: the terrain's collision faces aren't hit from inside)
+	var climbed := 0.0
+	while sdf <= 0.0 and climbed < 400.0:
+		var stride := maxf(absf(sdf), 0.5)
+		local += local_up * stride
+		climbed += stride
+		sdf = vt.get_voxel_f(Vector3i(local.round()))
+	if sdf <= 0.0:
+		return
+	global_position = _planet.to_global(local) + up * 0.5
+	reset_physics_interpolation()
 	velocity = Vector3.ZERO
 	swimming = false
 	ready_to_move = false
@@ -574,6 +632,22 @@ func _set_crouching(want: bool) -> void:
 	_collision.position = Vector3(0, h * 0.5, 0)
 
 
+## Sprint: Shift pressed again right after letting go of it (a double tap, or a quick re-press while running) starts
+## it, held; it ends on release, after sprint_duration seconds (back to the run while Shift stays down), or when it
+## can't go on (crouched, stopped, backing up)
+func _update_sprint(delta: float, can: bool) -> void:
+	var now := Time.get_ticks_msec() / 1000.0
+	if Input.is_action_just_released("sprint"):
+		_last_run_release = now
+	if not typing and Input.is_action_just_pressed("sprint") and now - _last_run_release < DOUBLE_TAP:
+		sprinting = true
+		_sprint_time = 0.0
+	if sprinting:
+		_sprint_time += delta
+		if not _held("sprint") or not can or _sprint_time > sprint_duration:
+			sprinting = false
+
+
 func _update_animation(horizontal: Vector3, delta: float) -> void:
 	if _jump_time >= 0.0:
 		_jump_time += delta
@@ -581,29 +655,19 @@ func _update_animation(horizontal: Vector3, delta: float) -> void:
 		_jump_time = -1.0
 	var up := up_direction
 	animator.ground_speed = horizontal.length()
+	# Direction of travel in the model's frame (it faces the body's -Z: x its left, y ahead)
+	var travel := Vector2(horizontal.dot(-global_basis.x), horizontal.dot(-global_basis.z))
+	if travel.length() > 0.05:
+		animator.move_direction = travel.normalized()
 	# In the air only after a jump or a real drop: a moment off the ground (a bump) keeps the gait going
 	animator.airborne = not is_on_floor() and (_jump_time >= 0.0 or _air_time >= COYOTE_TIME)
 	animator.crouching = crouching
 	animator.swimming = swimming
 	animator.vertical_speed = velocity.dot(up)
-	var heading := _north(up).rotated(up, _yaw)
-	animator.look_yaw = _facing.signed_angle_to(heading, up)
-	animator.look_pitch = _pitch + 0.25 # the camera's default tilt counts as looking level
-
-	# Lean into acceleration (starting, stopping, turning): tilt the model about its feet, toward the (smoothed)
-	# change of ground velocity, as a body keeps its balance
-	var accel := (horizontal - _prev_horizontal) / maxf(delta, 1e-4)
-	_prev_horizontal = horizontal
-	if animator.airborne:
-		accel = Vector3.ZERO
-	_lean_accel = _lean_accel.lerp(accel, 1.0 - exp(-delta * 6.0))
-	var local := global_basis.inverse() * _lean_accel
-	local.y = 0.0
-	var angle := minf(atan(local.length() / gravity) * 0.6, 0.22)
-	var tilt := Basis()
-	if angle > 0.002:
-		tilt = Basis(Vector3.UP.cross(local).normalized(), angle)
-	_model.transform = Transform3D(tilt, Vector3.ZERO) * _model_rest
+	# Slope along the direction of travel, for the uphill/downhill gaits (their clips are 25 degrees)
+	var n := get_floor_normal() if is_on_floor() else up
+	var along := horizontal.normalized() if horizontal.length() > 0.05 else _facing
+	animator.incline = clampf(asin(clampf(-n.dot(along), -1.0, 1.0)) / deg_to_rad(25.0), -1.0, 1.0)
 
 
 # A foot came down: the synth's step for the ground here (snowed-on or rain-soaked ground sounds so)
@@ -626,20 +690,110 @@ func _on_step(foot: int, strength: float) -> void:
 	_steps.trigger_footstep(surface, strength, -0.15 if foot == 0 else 0.15)
 
 
+func _held(action: String) -> bool:
+	return not typing and Input.is_action_pressed(action)
+
+
+## A panel that needs the pointer is open (settings, calendar, the build menu)
+func ui_open() -> bool:
+	return typing or (settings_menu != null and settings_menu.visible) or (calendar_panel != null and calendar_panel.visible) \
+			or (builder != null and builder._menu != null and builder._menu.visible)
+
+
 func _process(_delta: float) -> void:
+	# Each panel captures the mouse when it closes, though another may still be open (it vanished over the calendar
+	# after closing settings): while any is open the pointer shows
+	if ui_open() and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	# Camera height eases between standing, crouched and swimming (lifted clear of the water)
 	var cam_target := camera_height - 0.5 if crouching else (camera_height + 0.8 if swimming else camera_height)
 	_cam_height = lerpf(_cam_height, cam_target, 1.0 - exp(-_delta * 6.0))
+	if _camera:
+		_camera.fov = EdenOptions.fov
 	# Camera: above the character, turned to the camera heading and pitched, aligned with the planet
-	var up := (global_position - _center()).normalized()
+	# The camera follows where the body is drawn (interpolated between physics steps), not the physics position,
+	# which moves in 60 Hz steps: on a faster display the whole world shuddered against the character
+	var up := (get_global_transform_interpolated().origin - _center()).normalized()
+	_cam_anchor = ease_anchor(_cam_anchor, get_global_transform_interpolated().origin, up, _delta)
+	var body := _cam_anchor
 	var heading := _north(up).rotated(up, _yaw)
 	_pivot.global_transform = Transform3D(Basis.looking_at(heading, up) * Basis(Vector3.RIGHT, _pitch),
-			global_position + up * _cam_height + heading.cross(up) * camera_shoulder)
+			body + up * _cam_height + heading.cross(up) * camera_shoulder)
 	_arm.spring_length = camera_distance
+	_keep_camera_above_snow(up, _delta)
 	if _hud and _hud.visible:
 		var status := "" if ready_to_move else "\nWaiting for terrain collision under the player..."
-		var mine := "\nHold LMB dig / chop trees, RMB place, 1-6 / wheel select, Tab inventory   G hammer (build)" if miner else ""
+		var mine := "\nHold LMB dig / chop trees, RMB place, T brush, 1-6 / wheel select, Tab inventory   G hammer (build)" if miner else ""
 		if net:
 			mine += "\nMultiplayer: %s, %d online" % [net.status, net.online_count()]
-		_hud.text = "%s\nWASD move, Shift run, Ctrl/C crouch, Space jump, mouse look (click)   N / B weather, L lightning, K calendar   Esc settings   F1 hide%s%s" % [
+		_hud.text = "%s\nWASD move, Shift run (2x hold: sprint), Ctrl/C crouch, Space jump, mouse look (click)   N / B weather, L lightning, K calendar   Esc settings   F1 hide   F2-F8 debug%s%s" % [
 				readings(), mine, status]
+
+
+## EdenDebug fly / no-clip: along the view (pitch included), Space up, Ctrl/C down, Shift faster. No-clip moves the
+## body straight through everything (its collision shape is off); fly slides along what it hits.
+func _fly_step(delta: float, input: Vector2, heading: Vector3, right: Vector3, up: Vector3) -> void:
+	var dir := heading.rotated(right, _pitch) * input.y + right * input.x
+	dir += up * (float(_held("jump")) - float(_held("crouch")))
+	var speed := debug.fly_speed * (8.0 if _held("sprint") else 1.0)
+	velocity = dir.limit_length(1.0) * speed
+	if debug.noclip:
+		global_position += velocity * delta
+	else:
+		move_and_slide()
+	swimming = false
+	_set_crouching(false)
+	_air_time = 0.0
+	_jump_time = -1.0
+	_was_on_floor = true
+	_facing = heading
+	global_basis = Basis.looking_at(_facing, up)
+	_update_animation(Vector3.ZERO, delta)
+
+
+## Speed multiplier in lying snow at a spot: wading through its full depth (0.35 m) takes nearly half the speed
+func _snow_slowdown(at: Vector3) -> float:
+	if not _ambience:
+		return 1.0
+	var depth: float = _ambience.call("get_snow_depth_at", at)
+	return 1.0 - 0.55 * clampf(depth / 0.35, 0.0, 1.0)
+
+
+## The spring arm stops at solid ground, but lying snow is drawn above it: raise the camera (eased) to stay over
+## the snow's surface where it sits
+func _keep_camera_above_snow(up: Vector3, delta: float) -> void:
+	var need := 0.0
+	if _ambience:
+		var cam := _cam_lift.global_position   # where the arm put the camera, before the lift
+		var q := PhysicsRayQueryParameters3D.create(cam + up * 2.0, cam - up * 3.0, 1, [get_rid()])
+		var hit := get_world_3d().direct_space_state.intersect_ray(q)
+		if not hit.is_empty():
+			var snow: float = _ambience.call("get_snow_depth_at", hit.position)
+			need = maxf(0.0, (snow + 0.3) - (cam - hit.position).dot(up))
+	_snow_lift = lerpf(_snow_lift, need, 1.0 - exp(-delta * 10.0))
+	_camera.position = _cam_lift.global_basis.inverse() * (up * _snow_lift)
+
+
+## Presses a path into lying snow from where the last press was to `at`: a continuous stroke, so no gaps open at speed
+## or over a bump (`grounded` false, e.g. mid-jump, lifts the pen)
+static func press_snow_stroke(ambience: Node, last: Variant, at: Vector3, grounded: bool) -> Variant:
+	if ambience == null or not grounded or float(ambience.get_snow_depth_at(at)) <= 0.005:
+		return at if grounded else null
+	var from: Vector3 = last if last is Vector3 and (last as Vector3).distance_to(at) < 3.0 else at
+	var n := ceili(from.distance_to(at) / 0.15)
+	for i in range(1, n + 1):
+		ambience.press_snow(from.lerp(at, float(i) / n), 0.4, 1.0)
+	if n == 0:
+		ambience.press_snow(at, 0.4, 1.0)
+	return at
+
+
+## Where the camera anchors to the body: exactly along the ground, eased along up. Physics contacts (the capsule
+## settling against terrain, rocks and trunks) shiver the body a few centimetres up and down every few steps; copied
+## straight into the camera that shook the whole view. A jump of more than 2 m (teleport, respawn) snaps.
+static func ease_anchor(anchor: Vector3, body: Vector3, up: Vector3, delta: float) -> Vector3:
+	var d := body - anchor
+	if d.length() > 2.0:
+		return body
+	var vertical := d.dot(up)
+	return anchor + (d - up * vertical) + up * vertical * (1.0 - exp(-delta * 12.0))

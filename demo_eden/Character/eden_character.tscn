@@ -1,0 +1,32 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://Character/Synty/PolygonSyntyCharacter.fbx" id="1_drs4p"]
+[ext_resource type="AnimationLibrary" path="res://Character/synty_anims.res" id="2_gpvir"]
+[ext_resource type="AnimationNodeStateMachine" path="res://Character/synty_anim_tree.tres" id="3_56amv"]
+[ext_resource type="Script" path="res://Character/eden_character_anim.gd" id="4_ly2tr"]
+
+[node name="EdenCharacter" type="Node3D" unique_id=1880666766]
+
+[node name="Model" type="Node3D" parent="." unique_id=137236187 instance=ExtResource("1_drs4p")]
+
+[node name="AnimationTree" type="AnimationTree" parent="." unique_id=1501632328]
+root_node = NodePath("../Model")
+libraries/ = ExtResource("2_gpvir")
+tree_root = ExtResource("3_56amv")
+parameters/conditions/falling = false
+parameters/conditions/grounded = false
+parameters/conditions/jump = false
+parameters/conditions/land = false
+parameters/conditions/swimming = false
+parameters/Fall/blend_position = 0.0
+parameters/Grounded/downhill/blend_position = 0.0
+parameters/Grounded/stand/blend_position = Vector2(0, 0)
+parameters/Grounded/uphill/blend_position = 0.0
+parameters/Grounded/incline/blend_amount = 0.0
+parameters/Grounded/crouch/blend_position = Vector2(0, 0)
+parameters/Grounded/crouch_mix/blend_amount = 0.0
+parameters/Grounded/rate/scale = 1.0
+parameters/Jump/blend_position = 0.0
+parameters/Land/blend_position = 0.0
+parameters/Swim/blend_position = 0.0
+script = ExtResource("4_ly2tr")

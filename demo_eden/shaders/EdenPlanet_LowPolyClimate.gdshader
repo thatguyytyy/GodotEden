@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
+render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx, ambient_light_disabled;
 
 #define EDEN_WEATHER_MATERIAL_UNIFORMS
 #include "res://shaders/eden_weather.gdshaderinc"
@@ -623,7 +623,8 @@ void vertex() {
 	vec4 weather = eden_weather(v_pos_world);
 	v_weather = weather.gb;
 	if (weather.g > 0.0) {
-		vec3 snow_lift = eden_weather_up(v_pos_world) * weather.g * eden_weather_params.x;
+		// (less where feet have pressed a path into it)
+		vec3 snow_lift = eden_weather_up(v_pos_world) * weather.g * eden_weather_params.x * eden_snow_left_soft(v_pos_world);
 		v_pos_world += snow_lift;
 		VERTEX += snow_lift * mat3(MODEL_MATRIX); // inverse of a rigid transform's rotation
 	}
@@ -1202,6 +1203,11 @@ void fragment() {
 	// Weather: fresh snow settles on flatter ground first; rain darkens and glosses the ground
 	float fresh_snow = smoothstep(0.0, 0.35, v_weather.x * 1.3 - (1.0 - slope_up) * 1.5);
 	albedo = mix(albedo, eden_snow_color(), fresh_snow);
+	if (fresh_snow > 0.0) {
+		// Packed snow in a footpath: per pixel, so the path has crisp edges (the dip itself is per vertex)
+		// (trodden snow in shade: bluish, dark enough to read against sunlit snow, which is near white)
+		albedo = mix(albedo, albedo * vec3(0.52, 0.58, 0.68), eden_snow_trail(v_pos_world) * fresh_snow);
+	}
 	snow_amount = max(snow_amount, fresh_snow);
 	float wet_amount = v_weather.y * (1.0 - snow_amount);
 	albedo *= 1.0 - eden_weather_params.y * wet_amount;
@@ -1310,7 +1316,7 @@ void fragment() {
 
 	// Keep the terrain matte. The low-poly facet lighting should be the star (a sky sheen at grazing angles washes
 	// distant ground toward white).
-	SPECULAR = 0.1;
+	SPECULAR = 0.01;
 
 
 	// -------------------------------------------------------------------------

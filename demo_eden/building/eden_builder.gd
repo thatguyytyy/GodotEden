@@ -101,29 +101,33 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if not active:
 		return
-	if event is InputEventKey and event.pressed and not event.echo:
-		var k: int = event.physical_keycode
-		if k >= KEY_0 and k <= KEY_9:
-			select(9 if k == KEY_0 else k - KEY_1)
-	if event.is_action_pressed("build_rotate"):
+	# Only what building uses is consumed: mouse motion (camera look), movement and the other keys pass on
+	var used := true
+	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode >= KEY_0 and event.physical_keycode <= KEY_9:
+		select(9 if event.physical_keycode == KEY_0 else event.physical_keycode - KEY_1)
+	elif event.is_action_pressed("build_rotate"):
 		_rotation += PI / 2.0
-	if event.is_action_pressed("build_remove"):
+	elif event.is_action_pressed("build_remove"):
 		remove_target()
-	if event is InputEventMouseButton and event.pressed:
-		match event.button_index:
-			MOUSE_BUTTON_WHEEL_UP:
-				_rotation += ROTATE_STEP
-			MOUSE_BUTTON_WHEEL_DOWN:
-				_rotation -= ROTATE_STEP
-			MOUSE_BUTTON_RIGHT:
-				_menu.visible = not _menu.visible
-				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if _menu.visible else Input.MOUSE_MODE_CAPTURED
-			MOUSE_BUTTON_MIDDLE:
-				remove_target()
-			MOUSE_BUTTON_LEFT:
-				if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not _menu.visible:
-					place()
-	get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton:
+		if event.pressed:
+			match event.button_index:
+				MOUSE_BUTTON_WHEEL_UP:
+					_rotation += ROTATE_STEP
+				MOUSE_BUTTON_WHEEL_DOWN:
+					_rotation -= ROTATE_STEP
+				MOUSE_BUTTON_RIGHT:
+					_menu.visible = not _menu.visible
+					Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if _menu.visible else Input.MOUSE_MODE_CAPTURED
+				MOUSE_BUTTON_MIDDLE:
+					remove_target()
+				MOUSE_BUTTON_LEFT:
+					if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not _menu.visible:
+						place()
+	else:
+		used = false
+	if used:
+		get_viewport().set_input_as_handled()
 
 
 func _process(_delta: float) -> void:
@@ -207,6 +211,8 @@ static func _extent(k: String) -> Vector3:
 func _snap(xf: Transform3D, k: String, aim: Vector3) -> Transform3D:
 	var best_t := Vector3.INF
 	var best_d := SNAP_RADIUS
+	var best_piece: EdenBuildPiece
+	var best_sp := Vector3.ZERO
 	for piece in pieces:
 		if piece.global_position.distance_to(aim) > 4.0:
 			continue
@@ -216,7 +222,20 @@ func _snap(xf: Transform3D, k: String, aim: Vector3) -> Transform3D:
 			if d < best_d:
 				best_d = d
 				best_t = w
+				best_piece = piece
+				best_sp = sp
 	if best_t == Vector3.INF:
+		return xf
+	# A piece of the same size lined up with it: the neighbour across that snap point, in the same plane (floor beside
+	# floor, wall beside or on top of wall). Nearest-point matching would join a floor's bottom edge to the other's top
+	# edge when aiming at its top: a step up instead of a flat floor.
+	var size: Vector3 = _extent(k)
+	if EdenBuildPieces.PIECES[k].shape == "box" and _extent(best_piece.kind).is_equal_approx(_aligned_size(size, best_piece.global_basis, xf.basis)):
+		var ts := _extent(best_piece.kind)
+		var thin := 0 if ts.x <= ts.y and ts.x <= ts.z else (1 if ts.y <= ts.z else 2)
+		var local := best_sp
+		local[thin] = 0.0
+		xf.origin = best_piece.global_transform * (local * 2.0)
 		return xf
 	var best_g := Vector3.ZERO
 	var best_gd := INF
@@ -228,6 +247,18 @@ func _snap(xf: Transform3D, k: String, aim: Vector3) -> Transform3D:
 			best_g = w
 	xf.origin += best_t - best_g
 	return xf
+
+
+# A piece of `size` in basis gb, measured along the axes of basis tb; Vector3.INF unless the axes line up
+static func _aligned_size(size: Vector3, tb: Basis, gb: Basis) -> Vector3:
+	var out := Vector3.ZERO
+	for i in 3:
+		for j in 3:
+			var c := absf(tb[i].normalized().dot(gb[j].normalized()))
+			if c > 0.02 and c < 0.98:
+				return Vector3.INF
+			out[i] += c * size[j]
+	return out
 
 
 # Why the selected piece can't go at xf ("" if it can)

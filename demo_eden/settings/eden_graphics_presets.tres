@@ -1,7 +1,7 @@
-[gd_resource type="Resource" script_class="EdenGraphicsPresets" format=3]
+[gd_resource type="Resource" script_class="EdenGraphicsPresets" format=3 uid="uid://bkgkuxtsn5uib"]
 
-[ext_resource type="Script" path="res://settings/eden_graphics_preset.gd" id="1_uusti"]
-[ext_resource type="Script" path="res://settings/eden_graphics_presets.gd" id="2_1a1p0"]
+[ext_resource type="Script" uid="uid://h682lhhcof68" path="res://settings/eden_graphics_preset.gd" id="1_uusti"]
+[ext_resource type="Script" uid="uid://bfemddhjyn5ei" path="res://settings/eden_graphics_presets.gd" id="2_1a1p0"]
 
 [sub_resource type="Resource" id="Resource_phrqi"]
 script = ExtResource("1_uusti")
@@ -54,6 +54,7 @@ foliage_detail_distance = 110.0
 foliage_far_detail = 1.2
 foliage_far_visibility = 650.0
 ocean_reflection_steps = 24
+volumetric_clouds = true
 
 [resource]
 script = ExtResource("2_1a1p0")
