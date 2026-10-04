@@ -33,8 +33,8 @@ static inline PackedColorArray _eden_default_bolt_colors() {
 	X(float, white, 1.0f, PROPERTY_HINT_RANGE, "0.5,16.0,0.01", "Look")                                         \
 	X(float, contrast, 1.08f, PROPERTY_HINT_RANGE, "0.5,2.0,0.01", "Look")                                      \
 	X(float, ambient_strength, 0.5f, PROPERTY_HINT_RANGE, "0.0,1.0,0.01", "Look")                               \
-	X(float, starlight, 0.1f, PROPERTY_HINT_RANGE, "0.0,1.0,0.001", "Look")                                     \
-	X(float, moonlight, 0.35f, PROPERTY_HINT_RANGE, "0.0,2.0,0.01", "Look")                                      \
+	X(float, starlight, 0.3f, PROPERTY_HINT_RANGE, "0.0,1.0,0.001", "Look")                                     \
+	X(float, moonlight, 0.6f, PROPERTY_HINT_RANGE, "0.0,2.0,0.01", "Look")                                      \
 	X(Color, night_ambient_color, Color(0.55f, 0.63f, 0.85f), PROPERTY_HINT_COLOR_NO_ALPHA, "", "Look")          \
 	X(float, saturation, 1.2f, PROPERTY_HINT_RANGE, "0.0,2.0,0.01", "Look")                                     \
 	X(bool, ssao_enabled, true, PROPERTY_HINT_NONE, "", "Look")                                                 \
@@ -101,6 +101,9 @@ static inline PackedColorArray _eden_default_bolt_colors() {
 	X(float, snow_rate, 0.5f, PROPERTY_HINT_RANGE, "0.0,10.0,0.01,suffix:/min", "Weather")                      \
 	X(float, melt_rate, 0.25f, PROPERTY_HINT_RANGE, "0.0,10.0,0.01,suffix:/min", "Weather")                     \
 	X(float, snow_max_depth, 0.35f, PROPERTY_HINT_RANGE, "0.0,3.0,0.01,suffix:m", "Weather")                    \
+	/* Footprints in the snow fade over this many seconds (0: only falling snow fills them). Multiplayer trails */ \
+	/* carry their age, so the server's snow_trail lifetime must match                                        */ \
+	X(float, snow_trail_lifetime, 600.0f, PROPERTY_HINT_RANGE, "0.0,7200.0,1.0,suffix:s", "Weather")            \
 	X(bool, lightning_enabled, true, PROPERTY_HINT_NONE, "", "Weather")                                         \
 	X(float, storm_humidity_bias, 0.88f, PROPERTY_HINT_RANGE, "0.0,1.0,0.01", "Weather")                        \
 	X(float, thunder_chance, 0.5f, PROPERTY_HINT_RANGE, "0.0,1.0,0.01", "Weather")                              \
@@ -147,7 +150,7 @@ static inline PackedColorArray _eden_default_bolt_colors() {
 	X(float, birds_volume, 0.0f, PROPERTY_HINT_RANGE, "0.0,2.0,0.01", "Audio")                                  \
 	X(float, crickets_volume, 0.0f, PROPERTY_HINT_RANGE, "0.0,2.0,0.01", "Audio")                               \
 	X(float, rain_volume, 1.0f, PROPERTY_HINT_RANGE, "0.0,2.0,0.01", "Audio")                                   \
-	X(float, thunder_volume, 1.0f, PROPERTY_HINT_RANGE, "0.0,2.0,0.01", "Audio")                                \
+	X(float, thunder_volume, 0.6f, PROPERTY_HINT_RANGE, "0.0,2.0,0.01", "Audio")                                \
 	X(bool, spatial_audio, true, PROPERTY_HINT_NONE, "", "Spatial Audio")                                       \
 	X(float, surf_range, 350.0f, PROPERTY_HINT_RANGE, "20,2000,1,suffix:m", "Spatial Audio")                    \
 	X(float, surf_unit_size, 25.0f, PROPERTY_HINT_RANGE, "1,200,0.1", "Spatial Audio")                          \
@@ -234,6 +237,7 @@ private:
 	Vector3 trail_center, trail_u, trail_v; // world centre and tangent axes (unit)
 	bool trail_active = false, trail_dirty = false;
 	float trail_upload_timer = 0.0f;
+	float trail_fade_acc = 0.0f;
 	Ref<Image> trail_image;
 	Ref<ImageTexture> trail_texture;
 	void _trail_frame(const Vector3 &p_center);
@@ -395,6 +399,11 @@ public:
 	void set_external_weather(float p_intensity, float p_cloud, bool p_snow, bool p_thunder, float p_fog);
 	String get_weather_name() const;
 	Ref<ImageTexture> get_weather_texture() const;
+	// The roaming storms and weather_override as numbers, to send to other players (multiplayer: the host's weather
+	// is everyone's): [weather_override, then per natural cell dir xyz, radius, intensity, age, life, drift, phase,
+	// flags (1 thunder, 2 dust)]. set_weather_state() replaces this sim's with them.
+	PackedFloat32Array get_weather_state();
+	void set_weather_state(const PackedFloat32Array &p_state);
 	// Lying snow depth (m) at a world position, less what feet have pressed down there
 	float get_snow_depth_at(const Vector3 &p_world_position) const;
 	// How far the snow at a world position has been pressed down, 0..1

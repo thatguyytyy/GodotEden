@@ -126,6 +126,8 @@ func _play_sfx(stream: AudioStream, button: BaseButton) -> void:
 ## Audio files in a folder (an exported build lists them with .import or .remap on the end)
 static func _files(dir: String) -> PackedStringArray:
 	var out := PackedStringArray()
+	if not DirAccess.dir_exists_absolute(dir): # an empty folder (sfx/) isn't exported
+		return out
 	for f in DirAccess.get_files_at(dir):
 		f = f.trim_suffix(".import").trim_suffix(".remap")
 		if f.get_extension().to_lower() in EXTENSIONS and not out.has(dir.path_join(f)):

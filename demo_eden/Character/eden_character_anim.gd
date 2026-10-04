@@ -58,7 +58,8 @@ func _process(delta: float) -> void:
 	set("parameters/conditions/jump", air and vertical_speed > 0.5)
 	set("parameters/conditions/falling", air and vertical_speed <= 0.5)
 	set("parameters/conditions/land", not air and _land_t < 0.2)
-	set("parameters/conditions/grounded", not air)
+	set("parameters/conditions/grounded", not air and not swimming)
+	set("parameters/conditions/swimming", swimming)
 	if air:
 		if _was_grounded:
 			set("parameters/Jump/blend_position", ground_speed)
@@ -67,6 +68,7 @@ func _process(delta: float) -> void:
 	var travel := move_direction.normalized() * ground_speed if move_direction.length_squared() > 0.01 else Vector2(0, ground_speed)
 	set("parameters/Grounded/stand/blend_position", travel)
 	set("parameters/Grounded/crouch/blend_position", travel)
+	set("parameters/Swim/blend_position", travel.y)
 	set("parameters/Grounded/uphill/blend_position", ground_speed)
 	set("parameters/Grounded/downhill/blend_position", ground_speed)
 	# The slope clips only go forward: sideways or backward the level gaits stay

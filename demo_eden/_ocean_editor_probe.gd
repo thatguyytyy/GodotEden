@@ -12,6 +12,7 @@ func _ready() -> void:
 	var mat := ocean.material as ShaderMaterial
 	print("EDITOR_PROBE: leaves=%d material=%s shader_chars=%d" % [ocean.get_leaf_count(), mat,
 			mat.shader.code.length() if mat and mat.shader else 0])
-	var img := EditorInterface.get_editor_viewport_3d(0).get_texture().get_image()
+	# (looked up by name: EditorInterface doesn't exist in exported builds, and this script ships with the world scene)
+	var img: Image = Engine.get_singleton("EditorInterface").get_editor_viewport_3d(0).get_texture().get_image()
 	img.save_png(OS.get_environment("OCEAN_PROBE_OUT"))
 	get_tree().quit()

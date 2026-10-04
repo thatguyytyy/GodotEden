@@ -20,6 +20,7 @@ var _fps_cap: OptionButton
 var _show_fps: CheckButton
 var _refreshing := false
 var _root: Control
+var _invite: Button
 
 const FPS_CAPS := [0, 30, 60, 120, 144]
 ## [preset property, label, kind, min, max, step, unit]
@@ -37,6 +38,9 @@ const SETTINGS := [
 	["glow", "Glow", "check"],
 	["light_ray_samples", "Light shafts (samples)", "slider", 0, 256, 16, ""],
 	["ocean_reflection_steps", "Ocean reflections (steps)", "slider", 0, 64, 4, ""],
+	["volumetric_clouds", "Volumetric clouds", "check"],
+	["cloud_style", "Cloud style", "option", ["Low-poly", "Smooth"]],
+	["cloud_steps", "Cloud quality (samples)", "slider", 16, 128, 8, ""],
 ]
 
 
@@ -55,6 +59,9 @@ func setup(p_graphics: EdenGraphics, p_in_game := true) -> void:
 
 func open() -> void:
 	_refresh()
+	if _invite:
+		var steam := get_node_or_null("/root/EdenSteam")
+		_invite.visible = steam != null and steam.lobby_id != 0
 	visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
@@ -111,6 +118,11 @@ func _build() -> void:
 	box.add_child(buttons)
 	if in_game:
 		_button(buttons, "RESUME", close)
+		# Hosting a world on Steam (EdenSteam): Steam's invite dialog, shown only while a lobby is open (see open())
+		_invite = _button(buttons, "INVITE FRIENDS", func():
+			var steam := get_node_or_null("/root/EdenSteam")
+			if steam:
+				steam.invite_friends())
 		_button(buttons, "MAIN MENU", func():
 			visible = false
 			var app := get_node_or_null("/root/EdenApp")
@@ -187,7 +199,9 @@ func _graphics_tab() -> Control:
 				cb.toggled.connect(func(on): _set_value(key, on))
 				control = cb
 		_rows[key] = control
-		_row(grid, s[1], control)
+		# (foliage settings take effect when a world loads: see EdenGraphics.apply)
+		var later: bool = in_game and (key.begins_with("grass_") or key.begins_with("foliage_"))
+		_row(grid, s[1] + (" (next load)" if later else ""), control)
 	_vsync = CheckButton.new()
 	_vsync.text = "On"
 	_vsync.toggled.connect(func(on):

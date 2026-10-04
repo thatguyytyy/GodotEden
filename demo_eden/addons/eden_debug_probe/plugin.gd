@@ -11,11 +11,31 @@ var _sections := []
 var _hit_world := Vector3.ZERO
 var _camera: Camera3D
 var _status := ""
+var _export := WasmExport.new()
+
+
+## multiplayer/server has a .gdignore (its build output isn't for Godot), so exports skip it: pack the server
+## module's .wasm by hand, for hosting from the exported game (EdenWorlds.MODULE_WASM)
+class WasmExport extends EditorExportPlugin:
+	func _get_name() -> String:
+		return "EdenServerWasm"
+
+	func _export_begin(_features: PackedStringArray, _debug: bool, _path: String, _flags: int) -> void:
+		var bytes := FileAccess.get_file_as_bytes(EdenWorlds.MODULE_WASM)
+		if bytes.is_empty():
+			push_error("Eden export: %s is missing, hosting won't work (spacetime build -p multiplayer/server/spacetimedb)" % EdenWorlds.MODULE_WASM)
+		else:
+			add_file(EdenWorlds.MODULE_WASM, bytes, false)
 
 
 func _enter_tree() -> void:
 	# Receive viewport input whatever node is selected
 	set_input_event_forwarding_always_enabled()
+	add_export_plugin(_export)
+
+
+func _exit_tree() -> void:
+	remove_export_plugin(_export)
 
 
 func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:

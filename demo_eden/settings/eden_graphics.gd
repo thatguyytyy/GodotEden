@@ -47,6 +47,7 @@ const SAVE_PATH := "user://graphics.cfg"
 @export var remember_player_choice := true
 
 var _pending := false
+var _foliage_applied := false
 var _fps_label: Label
 
 
@@ -115,7 +116,15 @@ func apply() -> void:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED)
 		Engine.max_fps = max_fps
 		_update_fps_label()
+	# Foliage settings rebuild its whole instance library, regenerated synchronously by the VoxelInstancer: 30-60 s
+	# frozen per change in a loaded world (it read as a crash). In game they take once, when the world loads; changed
+	# later they're saved and apply next load. ponytail: async regeneration in the fork would make them live again
+	var foliage_now := Engine.is_editor_hint() or not _foliage_applied
+	if not Engine.is_editor_hint():
+		_foliage_applied = true
 	for n in scene.find_children("*", "", true, false):
+		if n is EdenFoliage and not foliage_now:
+			continue
 		if n is EdenFoliage:
 			n.apply_quality({
 				"grass_density_scale": p.grass_density,
@@ -138,6 +147,18 @@ func apply() -> void:
 			n.set("light_rays_enabled", p.light_ray_samples > 0)
 			if p.light_ray_samples > 0:
 				n.set("light_ray_samples", p.light_ray_samples)
+		elif n.is_class("EdenSpaceEnvironment") and not Engine.is_editor_hint():
+			# Stars are ~1.5 px across at full resolution: rendered smaller (Medium, Low) they fell between pixels
+			# and vanished. A coarser star lattice makes them as big in screen pixels as before, more of them as many
+			if not n.has_meta("base_stars"):
+				n.set_meta("base_stars", [n.get("star_scale"), n.get("star_density")])
+			var base: Array = n.get_meta("base_stars")
+			n.set("star_scale", base[0] * p.render_scale)
+			n.set("star_density", minf(base[1] / (p.render_scale * p.render_scale), 0.2))
+		elif n.is_class("EdenCloudShell"):
+			n.set("volumetric", p.volumetric_clouds)
+			n.set("vol_facet_mix", 1.0 if p.cloud_style == 0 else 0.0)
+			n.set("vol_steps", int(p.cloud_steps))
 		elif n.is_class("EdenPlanetOcean"):
 			var m = n.get("material")
 			if m is ShaderMaterial:

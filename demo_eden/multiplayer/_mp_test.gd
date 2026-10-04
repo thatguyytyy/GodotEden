@@ -93,11 +93,71 @@ func _process(_d: float) -> bool:
 				if built.size() >= 1:
 					_check(built[0].global_position.distance_to(player.global_position) < 20.0 and built[0].grounded,
 							"it stands on our terrain, %.1f m away" % built[0].global_position.distance_to(player.global_position))
-				return _finish()
+				_next()
 			elif dig_at == Vector3.ZERO and _el() > 30.0:
 				_check(false, "received the bot's voxel edit")
 				return _finish()
+		3: # chat: the bot's line arrives, then the local commands
+			if _has_chat("hello from bot", 0, "Bot"):
+				_check(true, "received the bot's chat line")
+				_chat_commands()
+				_next()
+			elif _el() > 15.0:
+				_check(false, "received the bot's chat line")
+				return _finish()
+		4: # our lines go out one at a time (the server limits how fast one player may talk)
+			if _el() > 0.5 and sent < QUEUE.size():
+				player.net.chat.submit(QUEUE[sent])
+				sent += 1
+				t0 = Time.get_ticks_msec()
+			elif sent == QUEUE.size() and _el() > 1.0:
+				_check(_has_chat("hello bot", 0, "Tester"), "our line came back from the server")
+				_check(_has_chat("waves", 1, "Tester"), "/me came back as an emote")
+				_check(not _has_chat("/bogus", 0, "Tester") and _has_chat("/not a command", 0, "Tester"), "// says a line starting with a slash aloud")
+				player.net.chat.submit("/name Tester2")
+				player.net.chat.submit("/tp bot")
+				_check(not player.ready_to_move, "/tp sends us to the bot")
+				_next()
+		5:
+			if _el() > 1.0:
+				_check(player.net.players[player.net.identity].name == "Tester2", "/name renamed us on the server")
+				return _finish()
 	return false
+
+
+const QUEUE := ["hello bot", "/me waves", "//not a command"]
+var sent := 0
+
+
+func _has_chat(text: String, kind: int, from: String) -> bool:
+	for m in player.net.chat_log:
+		if m.text == text and m.kind == kind and m.name == from:
+			return true
+	return false
+
+
+func _last_line() -> Dictionary:
+	return player.net.chat.lines[-1] if not player.net.chat.lines.is_empty() else {}
+
+
+func _chat_commands() -> void:
+	var chat: EdenChat = player.net.chat
+	_check(EdenChat.parse_command("/tp  Bob Smith").get("cmd") == "tp" and EdenChat.parse_command("/tp  Bob Smith").rest == "Bob Smith", "parse_command splits a command and its argument")
+	_check(EdenChat.parse_command("hello").is_empty() and EdenChat.parse_command("//hi").is_empty() and EdenChat.parse_command("/").is_empty(), "plain text and // are not commands")
+	chat.submit("/who")
+	_check(_last_line().get("text", "").contains("Tester") and _last_line().get("text", "").contains("Bot"), "/who lists both players: %s" % _last_line().get("text"))
+	chat.submit("/pos")
+	_check(_last_line().get("text", "").begins_with("x "), "/pos: %s" % _last_line().get("text"))
+	chat.submit("/time")
+	_check(_last_line().get("kind") == -1, "/time: %s" % _last_line().get("text"))
+	chat.submit("/help")
+	_check(_last_line().get("text", "").contains("/tp"), "/help lists the commands")
+	chat.submit("/help me")
+	_check(_last_line().get("text", "").contains("action"), "/help me explains /me")
+	chat.submit("/bogus")
+	_check(_last_line().get("kind") == -2, "an unknown command is reported: %s" % _last_line().get("text"))
+	chat.submit("/tp nobody")
+	_check(_last_line().get("kind") == -2, "/tp to nobody is reported")
 
 
 func _finish() -> bool:

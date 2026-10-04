@@ -1,9 +1,0 @@
-{
-  "tunnel_url": "https://files.example.com",
-  "ssh_target": "user@server-lan-ip",
-  "server_dir": "/var/www/eden_project",
-  "exports_dir": "C:/path/to/ExportedGames",
-  "godot_editor": "bin/godot.windows.editor.x86_64.console.exe",
-  "export_preset": "Windows Desktop",
-  "extra_files": ["steam_api64.dll", "onnxruntime.dll"]
-}

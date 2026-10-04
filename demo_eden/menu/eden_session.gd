@@ -13,6 +13,8 @@ static var world_name := ""
 static var seed := 12345
 ## What kind of planet it is (EdenWorldSettings: template, temperature, rainfall)
 static var settings := EdenWorldSettings.DEFAULTS
+## Why the game came back to the main menu by itself (the host left...), shown there once
+static var notice := ""
 
 
 static func play_online(p_server: String, p_database: String, p_name: String, p_seed: int,

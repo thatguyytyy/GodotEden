@@ -4,6 +4,7 @@ extends Node
 ## SpacetimeDB server the game started when it quits (window closed or Quit).
 
 const MENU_SCENE := "res://menu/main_menu.tscn"
+const PLAY_SCENE := "res://eden_play.tscn"
 const MODS_DIR := "user://mods"
 const MODS_CFG := "user://mods.cfg"
 
@@ -16,6 +17,14 @@ func _ready() -> void:
 	EdenOptions.load_options()
 	EdenOptions.apply()
 	load_mods()
+	_follow_steam.call_deferred() # (EdenSteam is the next autoload)
+
+
+## A Steam lobby joined (an invite, or the Play screen's Steam list): into its world, from wherever we are
+func _follow_steam() -> void:
+	var steam := get_node_or_null("/root/EdenSteam")
+	if steam:
+		steam.world_ready_to_join.connect(func(): get_tree().change_scene_to_file(PLAY_SCENE))
 
 
 func _notification(what: int) -> void:
@@ -24,14 +33,22 @@ func _notification(what: int) -> void:
 
 
 func quit() -> void:
+	_leave_steam()
 	EdenWorlds.stop_local_server()
 	get_tree().quit()
 
 
 func main_menu() -> void:
+	_leave_steam()
 	EdenSession.active = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	get_tree().change_scene_to_file(MENU_SCENE)
+
+
+func _leave_steam() -> void:
+	var steam := get_node_or_null("/root/EdenSteam")
+	if steam:
+		steam.leave()
 
 
 # ------------------------------------------------------------------------------------------------------------

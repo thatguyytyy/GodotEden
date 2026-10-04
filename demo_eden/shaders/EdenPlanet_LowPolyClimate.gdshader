@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
+render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx, ambient_light_disabled;
 
 #define EDEN_WEATHER_MATERIAL_UNIFORMS
 #include "res://shaders/eden_weather.gdshaderinc"
@@ -1316,7 +1316,7 @@ void fragment() {
 
 	// Keep the terrain matte. The low-poly facet lighting should be the star (a sky sheen at grazing angles washes
 	// distant ground toward white).
-	SPECULAR = 0.1;
+	SPECULAR = 0.01;
 
 
 	// -------------------------------------------------------------------------

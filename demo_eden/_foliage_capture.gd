@@ -46,6 +46,9 @@ func _initialize() -> void:
 	if args.has("hide"): # --hide=<node path under the scene root>
 		scene.get_node(args.hide).visible = false
 	var gen: EdenPlanetGeneratorV4 = terrain.generator
+	for k in args: # --gen_<export>=value overrides the planet generator (e.g. --gen_cliff_strength=0)
+		if k.begins_with("gen_"):
+			gen.set(k.substr(4), str_to_var(args[k]))
 	var R: float = gen.planet_radius
 	var biome: String = args.get("biome", "temperate")
 

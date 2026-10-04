@@ -44,6 +44,10 @@ func _run() -> void:
 	printerr("CLOSEUP: asked lod0_triangle_size %s -> snapped %.3f m, grid_resolution %d"
 			% [args[4] if args.size() > 4 else "(default)",
 			_ocean.lod0_triangle_size, _ocean.grid_resolution])
+	if OS.get_environment("CLOSEUP_SCENE_MATERIAL") != "": # the probe scene's ocean material (its wave set) instead of the default
+		var probe: Node = load("res://_ocean_editor_probe.tscn").instantiate()
+		_ocean.material = probe.find_children("*", "EdenPlanetOcean", true, false)[0].material
+		probe.free()
 	var mat: ShaderMaterial = _ocean.material
 	mat.set_shader_parameter("low_poly_normals", true)
 	if relief > 0.0:

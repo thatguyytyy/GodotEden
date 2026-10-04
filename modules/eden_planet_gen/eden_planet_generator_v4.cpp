@@ -165,6 +165,34 @@ void compute_heights(
 		std::fill(b.ridge.begin(), b.ridge.end(), 0.0f);
 		std::fill(b.erosion.begin(), b.erosion.end(), 0.5f);
 	}
+
+	// Rugged: crags on dry ground. Ridged fBm (sharp crests, creased gullies) at rock-outcrop scale, full in mountain
+	// regions and a touch in lowlands, so slopes break up into rock instead of one smooth ramp. (Terraced ledges were
+	// tried first and rejected: they read as man-made steps.) Direction-only noise (the lattice path).
+	if (p.rugged_strength > 0.0f && p.rugged_height > 0.0f) {
+		fast_noise_lite::FastNoiseLite crags;
+		crags.SetSeed(p.seed + 8761);
+		crags.SetNoiseType(fast_noise_lite::FastNoiseLite::NoiseType_OpenSimplex2);
+		crags.SetFractalType(fast_noise_lite::FastNoiseLite::FractalType_Ridged);
+		crags.SetFractalOctaves(4);
+		crags.SetFractalLacunarity(2.1f);
+		crags.SetFractalGain(0.5f);
+		crags.SetFrequency(1.0f / MAX(p.rugged_scale, 1.0f));
+		// Bends the crests so they don't run in straight lines
+		crags.SetDomainWarpType(fast_noise_lite::FastNoiseLite::DomainWarpType_OpenSimplex2);
+		crags.SetDomainWarpAmp(p.rugged_scale * 0.35f);
+		for (unsigned int i = 0; i < count; ++i) {
+			const float above_sea = h[i] - p.sea_level;
+			const float strength = p.rugged_strength * Math::lerp(p.rugged_lowland, 1.0f, lf[i]) * ss(4.0f, 60.0f, above_sea);
+			if (strength <= 0.0f) {
+				continue;
+			}
+			const float inv_len = p.planet_radius / MAX(Math::sqrt(x[i] * x[i] + y[i] * y[i] + z[i] * z[i]), 1e-3f);
+			float sx = x[i] * inv_len, sy = y[i] * inv_len, sz = z[i] * inv_len;
+			crags.DomainWarp(sx, sy, sz);
+			h[i] += p.rugged_height * strength * crags.GetNoise(sx, sy, sz);
+		}
+	}
 }
 
 // Pass 2, near-surface voxels only: climate and biome masks from final heights
@@ -699,6 +727,11 @@ const PropDef g_prop_defs[] = {
 	V4_PROP(valley_depth, PK_FLOAT, "0,1000,1"),
 	V4_PROP(valley_width, PK_FLOAT, "0,0.5,0.001"),
 	V4_PROP(valley_scale, PK_FLOAT, "100,100000,1"),
+	V4_GROUP("Rugged"),
+	V4_PROP(rugged_strength, PK_FLOAT, "0,2,0.01"),
+	V4_PROP(rugged_lowland, PK_FLOAT, "0,1,0.01"),
+	V4_PROP(rugged_height, PK_FLOAT, "0,200,0.5"),
+	V4_PROP(rugged_scale, PK_FLOAT, "10,5000,1"),
 	V4_GROUP("Erosion"),
 	V4_PROP(use_erosion, PK_BOOL, ""),
 	V4_PROP(erosion_height_scale, PK_FLOAT, "0,4,0.01"),

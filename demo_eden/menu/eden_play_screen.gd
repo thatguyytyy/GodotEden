@@ -119,6 +119,9 @@ func _ready() -> void:
 func refresh() -> void:
 	var keep := _servers.get_selected_items()
 	_server_list = EdenWorlds.servers()
+	if _steam():
+		_server_list.append({"name": "Steam", "url": "Worlds your friends and others host, through Steam", "local": false,
+				"steam": true})
 	_servers.clear()
 	for s in _server_list:
 		_servers.add_item(s.name)
@@ -135,7 +138,18 @@ func refresh_worlds() -> void:
 	if s.is_empty():
 		return
 	_set_status("Looking for worlds on %s..." % s.name)
+	if s.get("steam", false):
+		_steam().find_lobbies()
+		for l in await _steam().lobbies_found:
+			_world_list.append(l.merged({"online": l.members, "players": l.members}))
+		_fill_worlds()
+		_set_status("%d world%s on Steam." % [_world_list.size(), "" if _world_list.size() == 1 else "s"] if not _world_list.is_empty() \
+				else "No Steam worlds right now. A world you play on this computer is shared on Steam while you're in it.")
+		return
 	var up := await worlds.ping(s.url)
+	if not up and s.local and EdenWorlds.has_local_worlds() and EdenWorlds.cli() != "":
+		_set_status("Starting this computer's server...")
+		up = await worlds.ensure_local_server() == ""
 	if not up:
 		if s.local:
 			_set_status("No worlds hosted on this computer yet. HOST NEW starts a local SpacetimeDB server." if EdenWorlds.cli() != "" \
@@ -144,13 +158,24 @@ func refresh_worlds() -> void:
 			_set_status("%s doesn't answer." % s.url)
 		return
 	_world_list = await worlds.list_worlds(s.url)
+	_fill_worlds()
+	_set_status("%d world%s on %s." % [_world_list.size(), "" if _world_list.size() == 1 else "s", s.name] if not _world_list.is_empty() \
+			else "No worlds on %s yet." % s.name)
+	_update_buttons()
+
+
+func _fill_worlds() -> void:
 	for w in _world_list:
 		_worlds.add_item("%s    %s    %d online    host %s" % [w.name, EdenWorldSettings.describe(w.settings), w.online, w.host])
 		_worlds.set_item_tooltip(_worlds.item_count - 1, "%s\n%d players have joined\nseed %d\n%s" % [w.database, w.players,
 				w.seed, _settings_lines(w.settings)])
-	_set_status("%d world%s on %s." % [_world_list.size(), "" if _world_list.size() == 1 else "s", s.name] if not _world_list.is_empty() \
-			else "No worlds on %s yet." % s.name)
 	_update_buttons()
+
+
+## EdenSteam when Steam is running, or null
+func _steam() -> Node:
+	var s := get_node_or_null("/root/EdenSteam")
+	return s if s and s.available else null
 
 
 ## "Template: Archipelago" etc., one line per setting
@@ -182,6 +207,10 @@ func _join_selected() -> void:
 	var s := _selected_server()
 	var w := _selected_world()
 	if w.is_empty() or _busy:
+		return
+	if s.get("steam", false):
+		_set_busy(true, "Joining %s through Steam..." % w.name)
+		_steam().join_lobby(w.lobby) # (EdenSteam starts the game once in the lobby)
 		return
 	_set_busy(true, "Joining %s..." % w.name)
 	var meta := await worlds.world_meta(s.url, w.database)
@@ -249,8 +278,8 @@ func _add_server() -> void:
 
 func _remove_server() -> void:
 	var s := _selected_server()
-	if s.is_empty() or s.local:
-		_set_status("This computer can't be removed.")
+	if s.is_empty() or s.local or s.get("steam", false):
+		_set_status("%s can't be removed." % s.get("name", "It"))
 		return
 	EdenWorlds.remove_server(s.url)
 	await refresh()

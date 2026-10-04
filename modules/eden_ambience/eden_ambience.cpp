@@ -869,6 +869,52 @@ String EdenAmbience::get_weather_name() const {
 	return names[CLAMP(weather_override, 0, WEATHER_MAX - 1)];
 }
 
+static constexpr int WEATHER_STATE_STRIDE = 10;
+
+PackedFloat32Array EdenAmbience::get_weather_state() {
+	if (weather.natural < 0) {
+		weather.step(0.0f); // (seeds the natural cells)
+	}
+	PackedFloat32Array out;
+	out.push_back(weather_override);
+	for (int i = 0; i < weather.natural && i < (int)weather.cells.size(); i++) {
+		const EdenWeatherSim::Cell &c = weather.cells[i];
+		const float v[WEATHER_STATE_STRIDE] = { c.dir.x, c.dir.y, c.dir.z, c.radius, c.intensity, c.age, c.life, c.drift,
+			c.phase, float((c.thunder ? 1 : 0) | (c.dust ? 2 : 0)) };
+		for (float f : v) {
+			out.push_back(f);
+		}
+	}
+	return out;
+}
+
+void EdenAmbience::set_weather_state(const PackedFloat32Array &p_state) {
+	if (p_state.is_empty() || (p_state.size() - 1) % WEATHER_STATE_STRIDE != 0) {
+		return;
+	}
+	if ((int)p_state[0] != weather_override) {
+		set_weather_override((int)p_state[0]);
+	}
+	if (weather.natural < 0) {
+		weather.step(0.0f);
+	}
+	// Cell counts can differ (a setting): the ones both have
+	const int n = MIN((p_state.size() - 1) / WEATHER_STATE_STRIDE, MIN(weather.natural, (int)weather.cells.size()));
+	const float *v = p_state.ptr() + 1;
+	for (int i = 0; i < n; i++, v += WEATHER_STATE_STRIDE) {
+		EdenWeatherSim::Cell &c = weather.cells[i];
+		c.dir = Vector3(v[0], v[1], v[2]).normalized();
+		c.radius = v[3];
+		c.intensity = v[4];
+		c.age = v[5];
+		c.life = MAX(v[6], 1.0f);
+		c.drift = v[7];
+		c.phase = v[8];
+		c.thunder = (int)v[9] & 1;
+		c.dust = (int)v[9] & 2;
+	}
+}
+
 String EdenAmbience::cycle_weather(int p_step) {
 	set_weather_override(((weather_override + p_step) % WEATHER_MAX + WEATHER_MAX) % WEATHER_MAX);
 	return get_weather_name();
@@ -1140,8 +1186,14 @@ void EdenAmbience::_update(double p_delta) {
 	const float m_ice = biomes ? b_cold * (1.0f - local.cloud) : 0.0f;
 	const float m_dust = biomes ? b_desert * (1.0f - m_ice) : 0.0f;
 	const float m_pollen = MAX(1.0f - m_ice - m_dust, 0.0f);
+	// The daylight the particles catch, less what an eclipse takes: in the parent planet's shadow the sky goes dark
+	// but sunlit motes kept glinting as at noon, white specks that read as stars across the planet's disc
+	float sun_vis = 1.0f;
+	if (Node *atmo_n = _get_atmosphere()) {
+		sun_vis = CLAMP(float(atmo_n->call("get_sun_visible")), 0.0f, 1.0f);
+	}
 	if (on && particles_enabled) {
-		ratio[FX_MOTES] = motes_amount * state.day * near_ground * (land || m_ice > 0.0f ? 1.0f : 0.0f) * (1.0f - local.cloud) * (1.0f - dust_storm) *
+		ratio[FX_MOTES] = motes_amount * state.day * sun_vis * near_ground * (land || m_ice > 0.0f ? 1.0f : 0.0f) * (1.0f - local.cloud) * (1.0f - dust_storm) *
 				(biomes ? 1.0f : 1.0f - cold);
 		// Fireflies are a summer thing: in this hemisphere's summer where seasons are felt, all year in the tropics
 		float summer = 1.0f;
@@ -1154,14 +1206,15 @@ void EdenAmbience::_update(double p_delta) {
 		}
 		ratio[FX_FIREFLIES] = fireflies_amount * summer * state.night * warm * vegetation * near_ground * (1.0f - precip);
 		ratio[FX_SNOW] = snow_amount * (precip * local_freezing + 0.25f * cold * local.cloud) * (1.0f - _smoothstep(800.0f, 3000.0f, state.altitude));
-		ratio[FX_RAIN] = rain_amount * (1.0f - cold) + precip * (1.0f - local_freezing);
+		// (above the clouds, and out in space, nothing falls)
+		ratio[FX_RAIN] = (rain_amount * (1.0f - cold) + precip * (1.0f - local_freezing)) * (1.0f - _smoothstep(800.0f, 3000.0f, state.altitude));
 		if (biomes) {
 			ratio[FX_LEAVES] = leaves_amount * (forest_here >= 0.0f ? forest_here : b_forest) * (1.0f - cold) * (1.0f - 0.8f * b_coast) * near_ground * _smoothstep(0.5f, 4.0f, wind_now) * (1.0f - precip * 0.5f);
 			ratio[FX_DUST] = dust_amount * near_ground * MAX(b_desert * _smoothstep(dust_wind_threshold, dust_wind_threshold * 2.5f, wind_now), dust_storm);
 		}
 	}
 	const float ground_radius = state.planet_radius + MAX(state.ground_height, 0.0f);
-	const float ambient = (0.12f + 0.88f * state.day) * (1.0f - 0.35f * MAX(local.cloud, dust_storm));
+	const float ambient = (0.12f + 0.88f * state.day * sun_vis) * (1.0f - 0.35f * MAX(local.cloud, dust_storm));
 	{
 		const float wsum = MAX(m_ice + m_dust + m_pollen, 1e-3f);
 		const Color mc = (ice_crystal_color * m_ice + dust_mote_color * m_dust + pollen_color * m_pollen) / wsum;
@@ -1516,7 +1569,9 @@ void EdenAmbience::press_snow(const Vector3 &p_world_position, float p_radius, f
 	if (!state.valid || p_radius <= 0.0f || p_amount <= 0.0f) {
 		return;
 	}
-	if (!trail_active || (p_world_position - trail_center).length() > TRAIL_SIZE * 0.25f) {
+	// The map follows the camera (_update_trail), not the presses: a press 20 m off (another player, an old trail
+	// from the server) recentred it there and dropped the path behind us. Presses off the map are lost.
+	if (!trail_active) {
 		_trail_recentre(p_world_position);
 	}
 	const Vector3 d = p_world_position - trail_center;
@@ -1544,8 +1599,23 @@ void EdenAmbience::_update_trail(float p_delta) {
 	if (!trail_active) {
 		return;
 	}
+	// Kept within 6 m of the camera, so everything up to ~20 m round the player is always on the 64 m map
+	Vector3 cam;
+	if (_get_camera(cam) && (cam - trail_center).length() > 6.0f) {
+		_trail_recentre(cam);
+	}
 	// Falling snow fills paths back in (about as fast as fresh cover builds up)
-	const float refill = local.precipitation * local_freezing * snow_rate / 60.0f * 3.0f * p_delta;
+	// and every path fades over snow_trail_lifetime, linearly: a print pressed at 1 - age / lifetime (one walked before
+	// we came near, from the server) then fades in step with everyone else's copy of it
+	// (gathered into whole 8-bit steps of the map, ~2.4 s apart at 10 min, not re-uploaded every frame)
+	float refill = local.precipitation * local_freezing * snow_rate / 60.0f * 3.0f * p_delta;
+	if (snow_trail_lifetime > 0.0f) {
+		trail_fade_acc += p_delta / snow_trail_lifetime;
+		if (trail_fade_acc >= 1.0f / 255.0f) {
+			refill += trail_fade_acc;
+			trail_fade_acc = 0.0f;
+		}
+	}
 	if (refill > 0.0f) {
 		for (float &v : trail) {
 			v = MAX(0.0f, v - refill);
@@ -1709,6 +1779,8 @@ void EdenAmbience::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("cycle_weather", "step"), &EdenAmbience::cycle_weather, DEFVAL(1));
 	ClassDB::bind_method(D_METHOD("set_external_weather", "intensity", "cloud", "snow", "thunder", "fog"), &EdenAmbience::set_external_weather);
 	ClassDB::bind_method(D_METHOD("get_weather_name"), &EdenAmbience::get_weather_name);
+	ClassDB::bind_method(D_METHOD("get_weather_state"), &EdenAmbience::get_weather_state);
+	ClassDB::bind_method(D_METHOD("set_weather_state", "state"), &EdenAmbience::set_weather_state);
 	ClassDB::bind_method(D_METHOD("get_weather_texture"), &EdenAmbience::get_weather_texture);
 
 	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "planet_path", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "Node3D"), "set_planet_path", "get_planet_path");

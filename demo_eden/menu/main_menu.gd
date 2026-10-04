@@ -40,7 +40,7 @@ const PLAY_SCENE := "res://eden_play.tscn"
 ## the middle, so the planet frames them.
 const VIEWS := {
 	# The whole planet beside the Play panel (which takes the left of the screen), the moon high on the right
-	"play": {"orbit_distance": 4.5, "planet_screen": Vector2(0.81, 0.52), "moon_screen": Vector2(0.93, 0.12), "roll": 0.0},
+	"play": {"orbit_distance": 4.1, "planet_screen": Vector2(0.78, 0.52), "moon_screen": Vector2(0.93, 0.12), "roll": 0.0},
 	# Close, filling the right side
 	"options": {"orbit_distance": 2.0, "planet_screen": Vector2(1.05, 0.55), "moon_screen": Vector2(0.08, 0.2),
 		"roll": -1.2},
@@ -124,6 +124,11 @@ func _build_world() -> void:
 		_base_gen = gen.duplicate()
 	EdenSkyBodies.apply_world(world, menu_seed, false)
 	_terrain.set("lod_distance", terrain_lod_distance)
+	# The far field's disk cache is keyed by sector, not by planet: a random planet would load another's far terrain
+	_terrain.set("far_cache_enabled", false)
+	# Far results are only uploaded between near-terrain updates, which take ~2 s each after the Play screen swaps the
+	# planet: at the default few per upload the new planet's far field took over a minute to fill in. All of them at once.
+	_terrain.set("far_max_uploads_per_frame", 256)
 	add_child(world)
 	for n in world.find_children("*", "EdenGraphics", true, false):
 		_graphics = n
@@ -294,6 +299,14 @@ func _build_ui() -> void:
 	add_child(_options)
 	_options.setup(_graphics, false)
 	_options.closed.connect(func(): _set_screen(null))
+
+	if EdenSession.notice != "": # why we're back here (the host left...)
+		var dialog := AcceptDialog.new()
+		dialog.title = "Left the world"
+		dialog.dialog_text = EdenSession.notice
+		EdenSession.notice = ""
+		_ui.add_child(dialog)
+		dialog.popup_centered.call_deferred()
 
 
 ## Shows a screen (or the buttons again for null), centred over the menu, and moves the camera to its view

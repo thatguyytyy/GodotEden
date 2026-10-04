@@ -11,6 +11,14 @@ Players on the same planet see each other move and animate, and every dig or pla
 - `eden_remote_player.gd` (EdenRemotePlayer): another player's avatar. It uses the same model and procedural
   animator and moves smoothly between updates.
 
+## Chat
+
+Enter (or `/`) opens the chat box, Enter sends, Esc closes, Up/Down recall earlier lines (`eden_chat.gd`, EdenChat).
+Lines go through the server's `chat_message` table (last 100 kept, 500 characters, plain text, one line per 0.3 s per
+player), so everyone sees them and joiners get the recent history. A line starting with `/` is a command, shown only
+to whoever ran it: `/help [command]`, `/me <action>` (shared), `/who`, `/name <new name>`, `/tp <player>`, `/pos`,
+`/time`, `/clear`. `//text` says a line that begins with a slash. Add commands in `_register_commands()`.
+
 ## From the main menu
 
 The demo starts at the main menu (menu/main_menu.tscn). PLAY lists the worlds on this computer and on any server

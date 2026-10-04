@@ -22,6 +22,7 @@ static var local_port := 3180
 static var local_data := "user://spacetime"
 ## A server this game started (stopped again when the game quits); -1 if none
 static var _local_pid := -1
+static var _starting := false
 
 
 static func _static_init() -> void:
@@ -216,8 +217,17 @@ static func cli() -> String:
 ## Starts the local server if it isn't running (listening on all interfaces when `lan`, so others can join).
 ## Returns "" or what went wrong.
 func ensure_local_server(lan := false) -> String:
+	while _starting: # (another call is starting it)
+		await get_tree().process_frame
 	if await ping(local_url()):
 		return ""
+	_starting = true
+	var err := await _start_local_server(lan)
+	_starting = false
+	return err
+
+
+func _start_local_server(lan: bool) -> String:
 	var exe := cli()
 	if exe == "":
 		return "SpacetimeDB isn't installed (spacetime CLI not found)"
@@ -230,8 +240,29 @@ func ensure_local_server(lan := false) -> String:
 	for i in 60:
 		await get_tree().create_timer(0.5).timeout
 		if await ping(local_url()):
+			await _after_start()
 			return ""
 	return "SpacetimeDB didn't start"
+
+
+## The server was just started: nobody is connected yet. Brings each hosted world up to this game's module (new
+## tables and reducers; SpacetimeDB migrates in place) and marks everyone offline (players connected when it was
+## stopped never got their disconnect, so their worlds read "1 online" forever).
+func _after_start() -> void:
+	var server := local_url()
+	if not await database_exists(server, LOBBY):
+		return
+	_publish(LOBBY)
+	var rows = await sql(server, LOBBY, "SELECT * FROM world_listing")
+	for row in rows if rows != null else []:
+		var db := str(row[0])
+		if await database_exists(server, db) and _publish(db) == "":
+			await call_reducer(server, db, "all_offline", [])
+
+
+## True if worlds have been hosted on this computer before (its server's data folder exists)
+static func has_local_worlds() -> bool:
+	return DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(local_data))
 
 
 ## Publishes the eden module as `db` on the local server (the prebuilt .wasm)
@@ -239,6 +270,13 @@ func _publish(db: String) -> String:
 	var wasm := ProjectSettings.globalize_path(MODULE_WASM)
 	if not FileAccess.file_exists(MODULE_WASM):
 		return "The server module isn't built (spacetime build -p multiplayer/server/spacetimedb)"
+	if OS.has_feature("template"): # exported: the .wasm is inside the .pck, which the CLI can't read
+		wasm = OS.get_user_data_dir().path_join("StdbModule.wasm")
+		var f := FileAccess.open(wasm, FileAccess.WRITE)
+		if f == null:
+			return "Couldn't write %s" % wasm
+		f.store_buffer(FileAccess.get_file_as_bytes(MODULE_WASM))
+		f.close()
 	var out := []
 	var code := OS.execute(cli(), ["publish", db, "--bin-path", wasm, "-s", local_url(), "-y"], out, true)
 	if code != 0:

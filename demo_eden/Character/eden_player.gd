@@ -96,6 +96,8 @@ var _facing := Vector3.FORWARD
 var animator: EdenCharacterAnim
 var miner: EdenMiner
 var net: EdenNet
+## The chat box is taking keystrokes (EdenChat): no movement
+var typing := false
 var builder: EdenBuilder
 var graphics: EdenGraphics
 var calendar: EdenCalendar
@@ -108,6 +110,8 @@ var _cam_lift: Node3D
 var _snow_lift := 0.0
 var _cam_anchor := Vector3.ZERO
 var _last_press: Variant = null
+## Footprints in snow (world positions, 0.4 m apart) not yet sent by EdenNet
+var snow_prints := PackedVector3Array()
 var _steps: AudioStreamEdenAmbience
 var _steps_player: AudioStreamPlayer
 var _pivot: Node3D
@@ -336,7 +340,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		calendar_panel.toggle()
 	if _hud and event.is_action_pressed("toggle_help"):
 		_hud.visible = not _hud.visible
-	if event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+	# (a click on a panel's empty space reaches here too: it mustn't hide the pointer while the panel is up)
+	if event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and not ui_open():
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	elif event is InputEventKey and event.pressed and event.physical_keycode == KEY_ESCAPE and settings_menu and not settings_menu.visible:
 		settings_menu.open()
@@ -424,7 +429,7 @@ func _physics_process(delta: float) -> void:
 	var right := heading.cross(up)
 
 	var input := Input.get_vector("move_left", "move_right", "move_back", "move_forward")
-	if settings_menu and settings_menu.visible:
+	if typing or (settings_menu and settings_menu.visible):
 		input = Vector2.ZERO
 	if debug and debug.flying():
 		_fly_step(delta, input, heading, right, up)
@@ -437,9 +442,9 @@ func _physics_process(delta: float) -> void:
 	# between trunks): jumping, crouching and the animations use it, gravity uses the real floor contact
 	var on_floor := is_on_floor()
 	var grounded := on_floor or (_air_time < COYOTE_TIME and _jump_time < 0.0)
-	_set_crouching(Input.is_action_pressed("crouch") and grounded)
+	_set_crouching(_held("crouch") and grounded)
 	var backpedal := wish.dot(heading) < BACKPEDAL_DOT * wish.length()
-	running = Input.is_action_pressed("sprint") and not crouching and input.length() > 0.1
+	running = _held("sprint") and not crouching and input.length() > 0.1
 	_update_sprint(delta, running and not backpedal)
 	var speed := crouch_speed if crouching else (sprint_speed if sprinting else (run_speed if running else walk_speed))
 	speed *= _snow_slowdown(global_position + wish * 0.4)
@@ -467,7 +472,7 @@ func _physics_process(delta: float) -> void:
 		vertical = minf(vertical, 0.0)
 	else:
 		vertical -= gravity * delta
-	if grounded and Input.is_action_just_pressed("jump") and not crouching:
+	if grounded and not typing and Input.is_action_just_pressed("jump") and not crouching:
 		vertical = jump_speed
 		_jump_time = 0.0
 		_air_time = COYOTE_TIME # no second jump from the grace window
@@ -514,6 +519,10 @@ func _physics_process(delta: float) -> void:
 	_update_animation(horizontal, delta)
 	# Walking through lying snow presses a path into it
 	_last_press = press_snow_stroke(_ambience, _last_press, global_position, _air_time < 0.3)
+	# ...and keeps a footprint every 0.4 m of it for EdenNet to share (the world's record of who walked where)
+	if net and _ambience and _air_time < 0.3 and float(_ambience.get_snow_depth_at(global_position)) > 0.0 \
+			and (snow_prints.is_empty() or snow_prints[-1].distance_to(global_position) >= 0.4):
+		snow_prints.append(global_position)
 
 
 ## How far below the sea surface the feet are (negative above it)
@@ -530,13 +539,13 @@ func water_depth() -> float:
 # up, Crouch dives. Movement follows the camera heading, slower than on land.
 func _swim_step(delta: float, wish: Vector3, input: Vector2, depth: float, up: Vector3, horizontal: Vector3, vertical: float) -> void:
 	_set_crouching(false)
-	running = Input.is_action_pressed("sprint") and input.length() > 0.1
+	running = _held("sprint") and input.length() > 0.1
 	var speed := swim_sprint_speed if running else swim_speed
 	horizontal = horizontal.move_toward(wish * speed, 3.0 * speed * delta)
 	var a := gravity * (clampf(depth / float_depth, 0.0, 1.6) - 1.0) - 2.2 * vertical
-	if Input.is_action_pressed("jump"):
+	if _held("jump"):
 		a += 5.0
-	if Input.is_action_pressed("crouch"):
+	if _held("crouch"):
 		a -= 9.0
 	vertical += a * delta
 	velocity = horizontal + up * vertical
@@ -630,12 +639,12 @@ func _update_sprint(delta: float, can: bool) -> void:
 	var now := Time.get_ticks_msec() / 1000.0
 	if Input.is_action_just_released("sprint"):
 		_last_run_release = now
-	if Input.is_action_just_pressed("sprint") and now - _last_run_release < DOUBLE_TAP:
+	if not typing and Input.is_action_just_pressed("sprint") and now - _last_run_release < DOUBLE_TAP:
 		sprinting = true
 		_sprint_time = 0.0
 	if sprinting:
 		_sprint_time += delta
-		if not Input.is_action_pressed("sprint") or not can or _sprint_time > sprint_duration:
+		if not _held("sprint") or not can or _sprint_time > sprint_duration:
 			sprinting = false
 
 
@@ -681,7 +690,21 @@ func _on_step(foot: int, strength: float) -> void:
 	_steps.trigger_footstep(surface, strength, -0.15 if foot == 0 else 0.15)
 
 
+func _held(action: String) -> bool:
+	return not typing and Input.is_action_pressed(action)
+
+
+## A panel that needs the pointer is open (settings, calendar, the build menu)
+func ui_open() -> bool:
+	return typing or (settings_menu != null and settings_menu.visible) or (calendar_panel != null and calendar_panel.visible) \
+			or (builder != null and builder._menu != null and builder._menu.visible)
+
+
 func _process(_delta: float) -> void:
+	# Each panel captures the mouse when it closes, though another may still be open (it vanished over the calendar
+	# after closing settings): while any is open the pointer shows
+	if ui_open() and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	# Camera height eases between standing, crouched and swimming (lifted clear of the water)
 	var cam_target := camera_height - 0.5 if crouching else (camera_height + 0.8 if swimming else camera_height)
 	_cam_height = lerpf(_cam_height, cam_target, 1.0 - exp(-_delta * 6.0))
@@ -700,7 +723,7 @@ func _process(_delta: float) -> void:
 	_keep_camera_above_snow(up, _delta)
 	if _hud and _hud.visible:
 		var status := "" if ready_to_move else "\nWaiting for terrain collision under the player..."
-		var mine := "\nHold LMB dig / chop trees, RMB place, 1-6 / wheel select, Tab inventory   G hammer (build)" if miner else ""
+		var mine := "\nHold LMB dig / chop trees, RMB place, T brush, 1-6 / wheel select, Tab inventory   G hammer (build)" if miner else ""
 		if net:
 			mine += "\nMultiplayer: %s, %d online" % [net.status, net.online_count()]
 		_hud.text = "%s\nWASD move, Shift run (2x hold: sprint), Ctrl/C crouch, Space jump, mouse look (click)   N / B weather, L lightning, K calendar   Esc settings   F1 hide   F2-F8 debug%s%s" % [
@@ -711,8 +734,8 @@ func _process(_delta: float) -> void:
 ## body straight through everything (its collision shape is off); fly slides along what it hits.
 func _fly_step(delta: float, input: Vector2, heading: Vector3, right: Vector3, up: Vector3) -> void:
 	var dir := heading.rotated(right, _pitch) * input.y + right * input.x
-	dir += up * (float(Input.is_action_pressed("jump")) - float(Input.is_action_pressed("crouch")))
-	var speed := debug.fly_speed * (8.0 if Input.is_action_pressed("sprint") else 1.0)
+	dir += up * (float(_held("jump")) - float(_held("crouch")))
+	var speed := debug.fly_speed * (8.0 if _held("sprint") else 1.0)
 	velocity = dir.limit_length(1.0) * speed
 	if debug.noclip:
 		global_position += velocity * delta

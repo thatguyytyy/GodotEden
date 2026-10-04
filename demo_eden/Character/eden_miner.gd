@@ -4,12 +4,15 @@ extends Node
 ##   Hold LMB: dig where the crosshair points (within reach), collecting the ground's material; aimed at a tree,
 ##   log or boulder, chop / break it (a few hits) for Wood or Stone.
 ##   RMB: place the selected material there (not inside yourself). 1-6 / mouse wheel pick a slot, Tab the inventory.
+##   T: the RMB brush (SHAPES): Mound (soft rise that blends into the ground), Ball, Block (2 m cube, square to the
+##   planet), Flatten (levels to the aimed point's height), Smooth. Flatten and Smooth cost nothing.
 ## Wood and Stone are also what EdenBuilder's pieces cost.
 ## The material comes from the voxel data (the dominant texture of the V4 Mixel4 channels) and falls back to the
 ## generator's surface material; placed ground is painted with its own material, so it mines back as itself.
 
 signal inventory_changed
-## A dig (mode 0), place (mode 1) or felled tree / broken rock (mode 2) made here: EdenNet sends it to the others
+## A dig (mode 0), place (mode 1) or felled tree / broken rock (mode 2), or a brush edit (modes 3-6, SHAPES) made
+## here: EdenNet sends it to the others
 signal edited(world_position: Vector3, radius: float, mode: int, material: int)
 
 ## [name, V4 material index (MAT_*), swatch colour]
@@ -31,6 +34,14 @@ const GATHER := {
 }
 ## V4 material (MAT_GRASS .. MAT_OCEAN_FLOOR) -> the item mining it gives
 const MATERIAL_ITEM := [0, 1, 3, 2, 0, 4, 2]
+## RMB brushes (T cycles): [name, edit mode, radius, uses an item]
+const SHAPES := [
+	["Mound", 3, 2.4, true],
+	["Ball", 1, 1.3, true],
+	["Block", 4, 1.0, true],
+	["Flatten", 5, 2.8, false],
+	["Smooth", 6, 2.4, false],
+]
 
 @export var reach := 6.0
 ## Terrain voxels are 1 m: smaller spheres only dent the surface
@@ -41,6 +52,7 @@ const MATERIAL_ITEM := [0, 1, 3, 2, 0, 4, 2]
 
 var counts: Array[int] = [0, 0, 0, 0, 0, 0]
 var selected := 0
+var shape := 0
 ## Where the crosshair meets the ground within reach (has_target false otherwise)
 var has_target := false
 var target_position := Vector3.ZERO
@@ -83,6 +95,11 @@ func setup(player: EdenPlayer, terrain: VoxelLodTerrain) -> void:
 			var e := InputEventKey.new()
 			e.physical_keycode = KEY_1 + i
 			InputMap.action_add_event(a, e)
+	if not InputMap.has_action("terrain_shape"):
+		InputMap.add_action("terrain_shape")
+		var e := InputEventKey.new()
+		e.physical_keycode = KEY_T
+		InputMap.action_add_event("terrain_shape", e)
 	if not InputMap.has_action("inventory"):
 		InputMap.add_action("inventory")
 		var e := InputEventKey.new()
@@ -139,6 +156,11 @@ func gather() -> int:
 func place() -> bool:
 	if not has_target:
 		return false
+	var sh: Array = SHAPES[shape]
+	if not sh[3]:
+		apply_edit(target_position, sh[2], sh[1], 0)
+		edited.emit(target_position, sh[2], sh[1], 0)
+		return true
 	if ITEMS[selected][1] < 0:
 		_toast_msg("%s is for building: G for the hammer" % ITEMS[selected][0])
 		return false
@@ -146,19 +168,24 @@ func place() -> bool:
 		_toast_msg("No %s left" % ITEMS[selected][0])
 		return false
 	var at := target_position
-	if _inside_player(at, place_radius + 0.15):
+	var r: float = sh[2]
+	if sh[1] == 4:
+		at += target_normal * r # the block rests against what was hit
+	# (a mound's edge is a gentle rise, so only its core counts)
+	if _inside_player(at, (r * 1.5 if sh[1] == 4 else minf(r, place_radius)) + 0.15):
 		_toast_msg("Too close")
 		return false
-	apply_edit(at, place_radius, 1, ITEMS[selected][1])
-	edited.emit(at, place_radius, 1, ITEMS[selected][1])
+	apply_edit(at, r, sh[1], ITEMS[selected][1])
+	edited.emit(at, r, sh[1], ITEMS[selected][1])
 	counts[selected] -= 1
 	inventory_changed.emit()
 	_refresh_ui()
 	return true
 
 
-## The terrain change itself: remove a sphere (mode 0), add one painted with a V4 material (mode 1), or remove the
-## foliage there (mode 2: a tree someone felled). Also used for edits other players made (EdenNet)
+## The terrain change itself: remove a sphere (mode 0), add one painted with a V4 material (mode 1), remove the
+## foliage there (mode 2: a tree someone felled), or a brush (SHAPES): mound (3), block (4), flatten (5), smooth (6).
+## Also used for edits other players made (EdenNet), so everything here depends only on the arguments.
 func apply_edit(world_position: Vector3, radius: float, mode: int, material: int) -> void:
 	if mode == 2:
 		if _foliage:
@@ -169,13 +196,56 @@ func apply_edit(world_position: Vector3, radius: float, mode: int, material: int
 		_tool.mode = VoxelTool.MODE_REMOVE
 		_tool.do_sphere(local, radius)
 		return
-	_tool.mode = VoxelTool.MODE_ADD
-	_tool.do_sphere(local, radius)
+	if mode == 6:
+		_tool.smooth_sphere(local, radius, 2)
+		return
+	if mode == 5 or mode == 4:
+		_sdf_brush(local, radius, mode)
+		if mode == 5:
+			return
+	elif mode == 3:
+		_tool.mode = VoxelTool.MODE_ADD
+		_tool.grow_sphere(local, radius, 1.2)
+	else:
+		_tool.mode = VoxelTool.MODE_ADD
+		_tool.do_sphere(local, radius)
 	_tool.mode = VoxelTool.MODE_TEXTURE_PAINT
 	_tool.texture_index = material
 	_tool.texture_opacity = 1.0
 	_tool.texture_falloff = 0.2
 	_tool.do_sphere(local, radius + 0.6)
+
+
+# Flatten (5): blends the ground toward the plane through `c`, square to the planet, over a disc of radius r.
+# Block (4): unions a cube of half-size r, square to the planet and facing its north. Terrain-local (voxel) units.
+# ponytail: per-voxel GDScript over a ~(2r+3)^3 box (a few hundred voxels); move to C++ if brushes get big.
+func _sdf_brush(c: Vector3, r: float, mode: int) -> void:
+	var up := c.normalized() # terrain origin is the planet centre
+	var north := EdenPlayer._north(up)
+	var east := up.cross(north).normalized()
+	north = east.cross(up)
+	var ext := ceili(r * (1.8 if mode == 4 else 1.0)) + 2
+	var origin := Vector3i(c.floor()) - Vector3i(ext, ext, ext)
+	var buf := VoxelBuffer.new()
+	buf.create(ext * 2 + 1, ext * 2 + 1, ext * 2 + 1)
+	var ch := VoxelBuffer.CHANNEL_SDF
+	_tool.copy(origin, buf, 1 << ch)
+	for x in ext * 2 + 1:
+		for y in ext * 2 + 1:
+			for z in ext * 2 + 1:
+				var d := Vector3(origin + Vector3i(x, y, z)) - c
+				var old := buf.get_voxel_f(x, y, z, ch)
+				var h := d.dot(up)
+				if mode == 5:
+					var across := (d - up * h).length()
+					var w := 1.0 - smoothstep(r * 0.55, r, across)
+					if w > 0.0 and absf(h) < r:
+						buf.set_voxel_f(lerpf(old, h, w), x, y, z, ch)
+				else:
+					var q := Vector3(absf(d.dot(east)), absf(h), absf(d.dot(north))) - Vector3(r, r, r)
+					var box := Vector3(maxf(q.x, 0.0), maxf(q.y, 0.0), maxf(q.z, 0.0)).length() + minf(maxf(q.x, maxf(q.y, q.z)), 0.0)
+					buf.set_voxel_f(minf(old, box), x, y, z, ch)
+	_tool.paste(origin, buf, 1 << ch)
 
 
 ## Redraws the hotbar and inventory (after something else changed the counts, e.g. EdenBuilder)
@@ -200,6 +270,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	for i in ITEMS.size():
 		if enabled and event.is_action_pressed("slot_%d" % (i + 1)):
 			select(i)
+	if enabled and event.is_action_pressed("terrain_shape"):
+		shape = (shape + 1) % SHAPES.size()
+		_toast_msg("Brush: %s" % SHAPES[shape][0])
+		_refresh_ui()
 	if event.is_action_pressed("inventory"):
 		_panel.visible = not _panel.visible
 	if enabled and event is InputEventMouseButton and event.pressed and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -244,7 +318,8 @@ func _update_target() -> void:
 	var q := PhysicsRayQueryParameters3D.create(from, to, _player.collision_mask, [_player.get_rid()])
 	var hit := _player.get_world_3d().direct_space_state.intersect_ray(q)
 	if not hit.is_empty() and hit.position.distance_to(head) <= reach:
-		if hit.collider is VoxelInstancerRigidBody and _foliage:
+		# (unloading foliage bodies are detached, then queue_free'd: they linger in physics for a frame)
+		if hit.collider is VoxelInstancerRigidBody and not hit.collider.is_queued_for_deletion() and _foliage:
 			var kind = _foliage.item_kinds.get(hit.collider.get_library_item_id())
 			var kind_name: String = EdenFoliageLayer.kind_name(kind) if kind != null else ""
 			if GATHER.has(kind_name):
@@ -260,6 +335,7 @@ func _update_target() -> void:
 	_preview.visible = has_target and _active_t > 0.0
 	if has_target:
 		_preview.global_position = target_position
+		_preview.scale = Vector3.ONE * (SHAPES[shape][2] / dig_radius if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) else 1.0)
 
 
 func _is_terrain(collider: Object) -> bool:
@@ -411,7 +487,7 @@ func _refresh_ui() -> void:
 		lines.append("%s %-6s %4d" % [">" if i == selected else " ", ITEMS[i][0], counts[i]])
 		total += counts[i]
 	lines.append("")
-	lines.append("Total %d   LMB dig, RMB place, 1-5 / wheel select" % total)
+	lines.append("Total %d   LMB dig, RMB place (%s, T brush), 1-6 / wheel select" % [total, SHAPES[shape][0]])
 	_panel_label.text = "\n".join(lines)
 
 

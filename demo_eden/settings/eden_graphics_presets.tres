@@ -54,6 +54,7 @@ foliage_detail_distance = 110.0
 foliage_far_detail = 1.2
 foliage_far_visibility = 650.0
 ocean_reflection_steps = 24
+volumetric_clouds = true
 
 [resource]
 script = ExtResource("2_1a1p0")

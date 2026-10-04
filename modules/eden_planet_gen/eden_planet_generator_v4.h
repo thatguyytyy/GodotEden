@@ -70,6 +70,12 @@ public:
 		float valley_depth = 45.0f; // m
 		float valley_width = 0.07f; // 0..1, fraction of the valley noise range
 		float valley_scale = 4500.0f; // spacing of the valley network, m
+		// Rugged: crags (ridged noise: sharp crests, creased gullies) on dry ground, full in mountain regions, a touch in
+		// lowlands. Without them every slope was one smooth ramp.
+		float rugged_strength = 1.0f; // 0 smooth .. 1 (2 = twice as craggy)
+		float rugged_lowland = 0.15f; // strength multiplier in lowlands
+		float rugged_height = 26.0f; // m, crest to gully at full strength (about +-)
+		float rugged_scale = 140.0f; // m, size of the biggest crags (finer ones nest inside)
 		// Erosion
 		bool use_erosion = true;
 		float erosion_height_scale = 1.5f;

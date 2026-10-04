@@ -35,6 +35,7 @@ async def main(args):
     url = f"{args.server}/v1/database/{args.db}/subscribe"
     players, me, failures, accepted = {}, None, [], set()
     rows_seen = {}
+    chat = []
     request = 0
 
     async with websockets.connect(url, subprotocols=["v1.json.spacetimedb"], max_size=1 << 24) as ws:
@@ -45,6 +46,14 @@ async def main(args):
 
         def apply(db_update):
             for t in db_update.get("tables", []):
+                if t["table_name"] == "chat_message":
+                    for qu in t.get("updates", []):
+                        for r in qu.get("Uncompressed", qu).get("inserts", []):
+                            m = row(r)
+                            if isinstance(m, list):
+                                m = dict(zip(["id", "sender", "name", "text", "kind", "at"], m))
+                            chat.append((m["name"], m["text"], m["kind"]))
+                    continue
                 if t["table_name"] != "player":
                     continue
                 for qu in t.get("updates", []):
@@ -62,7 +71,7 @@ async def main(args):
             nonlocal me
             if "IdentityToken" in msg:
                 me = ident(msg["IdentityToken"]["identity"])
-                await ws.send(json.dumps({"Subscribe": {"query_strings": ["SELECT * FROM player"], "request_id": 1}}))
+                await ws.send(json.dumps({"Subscribe": {"query_strings": ["SELECT * FROM player", "SELECT * FROM chat_message"], "request_id": 1}}))
                 await call("set_name", ["Bot"])
             elif "InitialSubscription" in msg:
                 apply(msg["InitialSubscription"]["database_update"])
@@ -123,13 +132,25 @@ async def main(args):
                 await call("set_clock", [100.5, 0.0])
                 print("BOT set the world clock to day 100.5, paused")
                 dug = True
+                # Chat: a line, and a second right behind it that the server's rate limit must turn down
+                await call("send_chat", ["hello from bot", 0])
+                await call("send_chat", ["too fast", 0])
+                await call("send_chat", ["bad\u0007bell", 0])
+                print("BOT said hello")
             end = asyncio.get_event_loop().time() + 0.1
             while asyncio.get_event_loop().time() < end:
                 await pump(max(end - asyncio.get_event_loop().time(), 0.001))
             t += 0.1
         last = players.get(oid, other)
         moved = math.dist(first, (last["x"], last["y"], last["z"]))
-        ok = moved > 1.0 and "update_player" in accepted and "add_voxel_edit" in accepted and "place_piece" in accepted and "set_clock" in accepted and not failures
+        rejected = [f for f in failures if f[0] == "send_chat"]
+        failures = [f for f in failures if f[0] != "send_chat"]
+        chat_ok = ("Bot", "hello from bot", 0) in chat and not any(c[1] == "too fast" for c in chat) \
+            and not any("bell" in c[1] for c in chat) and len(rejected) == 2 and "Slow down" in str(rejected[0]) \
+            and any("plain text" in str(f) for f in rejected)
+        heard = ("Tester", "hello bot", 0) in chat and ("Tester", "waves", 1) in chat
+        ok = moved > 1.0 and "update_player" in accepted and "add_voxel_edit" in accepted and "place_piece" in accepted and "set_clock" in accepted and not failures and chat_ok and heard
+        print(f"BOT chat: rate limit and bad text turned down {len(rejected)} lines, own line accepted {chat_ok}, heard the game's lines {heard}")
         print(f"BOT {oid[:10]} moved {moved:.1f} m while watched; accepted {sorted(accepted)}; failures {failures}; their row updates seen {rows_seen.get(oid, 0)}")
         print("BOT", "PASS" if ok else "FAIL")
         return 0 if ok else 1

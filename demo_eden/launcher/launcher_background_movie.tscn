@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://launcher/launcher_background_movie.gd" id="1"]
+
+[node name="LauncherBackgroundMovie" type="Node"]
+script = ExtResource("1")
+
+[node name="SubViewport" type="SubViewport" parent="."]
+size = Vector2i(1920, 1200)
+render_target_update_mode = 4

@@ -1,6 +1,0 @@
-config.json
-build/
-dist/
-Output/
-*.spec
-__pycache__/

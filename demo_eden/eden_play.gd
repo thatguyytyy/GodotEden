@@ -5,6 +5,8 @@ extends Node3D
 ## Started from the main menu, the planet is the chosen world's (EdenSession.seed), set before anything samples or
 ## streams it.
 
+const TERRAIN_VERSION := 2
+
 @export var world_scene: PackedScene = preload("res://_ocean_editor_probe.tscn")
 @export var player_scene: PackedScene = preload("res://Character/eden_player.tscn")
 
@@ -25,6 +27,10 @@ func _ready() -> void:
 		terrain.generator = terrain.generator.duplicate()
 		terrain.generator.seed = EdenSession.seed
 		EdenWorldSettings.apply(terrain.generator, EdenSession.settings)
+		# The far field's disk cache is keyed by sector, not by planet: one folder per world's planet. Bump TERRAIN_VERSION
+		# when the generator changes shape (v2: rugged mountains), or worlds show the old terrain in the distance
+		terrain.far_cache_directory = "user://far_lod_cache/v%d_%d_%s" % [TERRAIN_VERSION, EdenSession.seed,
+				EdenWorldSettings.describe(EdenSession.settings).md5_text().left(8)]
 	# Procedural moons and parent planet, from the world's seed (the scene's own when run from the editor)
 	EdenSkyBodies.apply_world(world, int(terrain.generator.seed))
 	ambience = terrain.get_node_or_null("EdenAmbience")
@@ -37,7 +43,17 @@ func _ready() -> void:
 	var music := get_node_or_null("/root/EdenMusic")
 	if music:
 		music.play_game()
+	_open_to_steam()
 	_show_loading()
+
+
+## Playing a world hosted on this computer: open a Steam lobby for it so friends can join through Steam
+func _open_to_steam() -> void:
+	var steam := get_node_or_null("/root/EdenSteam")
+	if steam == null or not EdenSession.active or EdenSession.offline or EdenSession.server != EdenWorlds.local_url():
+		return
+	steam.host({"name": EdenSession.world_name, "database": EdenSession.database, "seed": EdenSession.seed,
+			"settings": EdenSession.settings, "port": EdenWorlds.local_port})
 
 
 ## A loading screen over the world until the terrain under the player exists and they can move
@@ -61,13 +77,14 @@ func _show_loading() -> void:
 	cover.add_child(box)
 	box.add_child(label)
 	box.add_child(EdenLoadingBar.new()) # (no measure of the terrain streaming: it sweeps)
-	while not player.ready_to_move:
+	while is_inside_tree() and not player.ready_to_move:
 		await get_tree().process_frame
-	await get_tree().create_timer(0.5).timeout # (let the first meshes draw in)
+	if not is_inside_tree():
+		return # (left the world while it loaded)
 	var tween := create_tween()
+	tween.tween_interval(0.5) # (let the first meshes draw in)
 	tween.tween_property(cover, "modulate:a", 0.0, 0.6)
-	await tween.finished
-	layer.queue_free()
+	tween.tween_callback(layer.queue_free)
 
 
 # A temperate, moist, gentle spot on land with forest nearby (golden-spiral search over the planet)

@@ -35,11 +35,19 @@ func _run() -> void:
 	# A camera above the trees with a long lens, aimed straight at each body
 	var cam := Camera3D.new()
 	cam.fov = 45.0
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--fov="): # wider, to see the bodies against the sky
+			cam.fov = float(a.trim_prefix("--fov="))
 	cam.far = 100000.0
 	play.add_child(cam)
 	var up := player.up_direction
 	cam.global_position = player.global_position + up * 150.0
 	cam.make_current()
+	for a in OS.get_cmdline_user_args(): # --cloud_<prop>=value on the EdenCloudShell (e.g. --cloud_cloud_facet_mix=0)
+		if a.begins_with("--cloud_"):
+			var kv := a.trim_prefix("--cloud_").split("=")
+			for c in play.find_children("*", "EdenCloudShell", true, false):
+				c.set(kv[0], str_to_var(kv[1]))
 	if "--clear" in OS.get_cmdline_user_args():
 		# No clouds in the way, and the hour when the sun lights the parent planet's near side
 		for c in play.find_children("*", "EdenCloudShell", true, false):

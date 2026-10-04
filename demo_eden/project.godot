@@ -18,11 +18,18 @@ config/features=PackedStringArray("4.6")
 
 EdenApp="*res://menu/eden_app.gd"
 EdenMusic="*res://menu/eden_music.gd"
+EdenSteam="*res://menu/eden_steam.gd"
 
 [display]
 
-window/size/viewport_width=1920
-window/size/viewport_height=1080
+window/size/viewport_width=2000
+window/size/viewport_height=1280
+
+[editor]
+
+movie_writer/ogv/encoding_speed=1
+movie_writer/movie_file="C:/DEV_DRIVE/Dev/GodotEden/demo_eden/movies/background.ogv"
+movie_writer/fps=30
 
 [editor_plugins]
 
