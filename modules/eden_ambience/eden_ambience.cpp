@@ -214,7 +214,7 @@ void EdenAmbience::_build() {
 	};
 	const Spec specs[FX_MAX] = {
 		{ "Motes", 900, 9.0f, 12.0f, 0.04f, 3.0f, 0.0f, Color(1.0f, 0.92f, 0.75f, 1.0f), true, Vector2(-1e9f, 1e9f) },
-		{ "Fireflies", 140, 18.0f, 9.0f, 0.14f, 7.0f, 0.0f, Color(0.95f, 0.9f, 0.35f, 1.0f), true, Vector2(0.3f, 3.5f) },
+		{ "Fireflies", 45, 18.0f, 30.0f, 0.14f, 7.0f, 0.0f, Color(0.95f, 0.9f, 0.35f, 1.0f), true, Vector2(0.3f, 3.5f) },
 		{ "Snow", 3000, 13.0f, 20.0f, 0.09f, 1.0f, 1.1f, Color(0.95f, 0.97f, 1.0f, 0.9f), false, Vector2(-1e9f, 1e9f) },
 		{ "Rain", 3500, 13.0f, 4.0f, 0.14f, 1.4f, 9.0f, Color(0.78f, 0.82f, 0.9f, 0.55f), false, Vector2(-1e9f, 1e9f) },
 		{ "Leaves", 900, 14.0f, 14.0f, 0.18f, 1.0f, 1.0f, Color(0.36f, 0.5f, 0.16f, 1.0f), false, Vector2(-1e9f, 1e9f) },

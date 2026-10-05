@@ -43,7 +43,7 @@ void process() {
 	if (mode == 0) {
 		vel = wind * 0.25 + turb * 0.12;
 	} else if (mode == 1) {
-		vel = turb * (0.5 + CUSTOM.w * 0.6);
+		vel = turb * (0.15 + CUSTOM.w * 0.2); // a slow drift
 	} else if (mode == 2) {
 		vel = -up * fall_speed * (0.7 + 0.6 * CUSTOM.w) + wind * 0.8 + turb * 0.35;
 	} else if (mode == 3) {
@@ -144,8 +144,12 @@ void fragment() {
 		c *= mix(1.0, 0.15 + 3.0 * glint, twinkle);
 		c = min(c, vec3(max_brightness));
 	} else if (mode == 1) {
-		float blink = sin(TIME * (1.1 + fract(v_to_particle.x * 0.05)) * 2.0 + v_to_particle.y);
-		c *= pow(max(blink, 0.0), 3.0);
+		// Each firefly on its own slow cycle (5-9 s): a ~1.6 s glow that swells and fades, then dark. The phase is the
+		// particle's own, so moving or turning the camera doesn't re-time them
+		float period = 5.0 + 4.0 * v_jitter;
+		float t = fract(TIME / period + v_phase) * period;
+		float glow = t < 1.6 ? sin(3.14159 * t / 1.6) : 0.0;
+		c *= glow * glow;
 		a = pow(clamp(1.0 - r, 0.0, 1.0), 3.0);
 	} else if (mode == 3) {
 		a = 1.0 - abs(UV.x - 0.5) * 2.0;
