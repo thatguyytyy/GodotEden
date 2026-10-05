@@ -35,6 +35,9 @@ func _notification(what: int) -> void:
 func quit() -> void:
 	_leave_steam()
 	EdenWorlds.stop_local_server()
+	var tele := get_node_or_null("/root/EdenTelemetry")
+	if tele:
+		await tele.clean_exit()
 	get_tree().quit()
 
 

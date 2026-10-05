@@ -276,6 +276,14 @@ func _profile_tab() -> Control:
 		EdenOptions.show_help = on
 		EdenOptions.save_options())
 	_row(grid, "On-screen help", help)
+	var telemetry := CheckButton.new()
+	telemetry.text = "On"
+	telemetry.tooltip_text = "Sends anonymous PC specs, performance numbers and crash logs to the developer to help fix problems. No name or account is attached."
+	var tele := get_node_or_null("/root/EdenTelemetry") # (looked up by path: a name wouldn't compile in test runs without autoloads)
+	telemetry.button_pressed = tele.enabled if tele else false
+	telemetry.disabled = tele == null
+	telemetry.toggled.connect(func(on): if tele: tele.set_enabled(on))
+	_row(grid, "Share diagnostics", telemetry)
 	return page[0]
 
 

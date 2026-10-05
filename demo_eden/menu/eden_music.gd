@@ -25,6 +25,9 @@ var _tween: Tween
 
 
 func _ready() -> void:
+	if "--server" in OS.get_cmdline_user_args(): # the dedicated server (server/eden_server.gd) plays nothing
+		set_process(false)
+		return
 	_music = AudioStreamPlayer.new()
 	_music.volume_db = MUSIC_DB
 	_music.finished.connect(_on_finished)

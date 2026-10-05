@@ -14,6 +14,7 @@ signal play
 signal preview(world_seed: int, settings: Dictionary)
 
 var worlds: EdenWorlds
+var _official_fetched := false
 var _servers: ItemList
 var _worlds: ItemList
 var _status: Label
@@ -119,6 +120,9 @@ func _ready() -> void:
 func refresh() -> void:
 	var keep := _servers.get_selected_items()
 	_server_list = EdenWorlds.servers()
+	if not _official_fetched:
+		_official_fetched = true
+		worlds.fetch_official.call_deferred() # the list shows now; a changed address applies from the next refresh
 	if _steam():
 		_server_list.append({"name": "Steam", "url": "Worlds your friends and others host, through Steam", "local": false,
 				"steam": true})
@@ -278,7 +282,7 @@ func _add_server() -> void:
 
 func _remove_server() -> void:
 	var s := _selected_server()
-	if s.is_empty() or s.local or s.get("steam", false):
+	if s.is_empty() or s.local or s.get("steam", false) or s.get("official", false):
 		_set_status("%s can't be removed." % s.get("name", "It"))
 		return
 	EdenWorlds.remove_server(s.url)
