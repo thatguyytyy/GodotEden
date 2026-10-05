@@ -1098,6 +1098,30 @@ void EdenAmbience::_update(double p_delta) {
 			}
 		}
 	}
+	// Floating origin: the planet's frame in world space, followed on the frame it moves (the survey and the weather
+	// map only refresh every fraction of a second). Shaders key their planet-relative maths off it.
+	{
+		Node3D *planet_node = _get_planet();
+		if (planet_node != nullptr && planet_node->is_inside_tree()) {
+			const Transform3D xf = planet_node->get_global_transform();
+			if (xf.origin != planet_frame_pushed.origin || xf.basis != planet_frame_pushed.basis) {
+				planet_frame_pushed = xf;
+				state.center = xf.origin;
+				Ref<ShaderMaterial> terrain_mat = planet_node->get("material");
+				if (weather_planet_pushed.w > 0.0f) {
+					weather_planet_pushed = Vector4(xf.origin.x, xf.origin.y, xf.origin.z, weather_planet_pushed.w);
+					RenderingServer::get_singleton()->global_shader_parameter_set("eden_weather_planet", weather_planet_pushed);
+					if (terrain_mat.is_valid()) {
+						terrain_mat->set_shader_parameter("eden_weather_planet", weather_planet_pushed);
+					}
+				}
+				if (terrain_mat.is_valid()) {
+					terrain_mat->set_shader_parameter("u_planet_center_world", xf.origin);
+					terrain_mat->set_shader_parameter("u_planet_north_world", xf.basis.get_column(1).normalized());
+				}
+			}
+		}
+	}
 	Vector3 cam;
 	Basis cam_basis;
 	const bool have_cam = _get_camera(cam, &cam_basis);

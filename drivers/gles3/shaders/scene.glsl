@@ -2528,6 +2528,9 @@ void main() {
 	frag_color = vec4(albedo, alpha);
 #else
 
+	// Direct-light AO (AO_LIGHT_AFFECT), as Forward+ and Mobile apply it. Eden fork: upstream GLES3 computed it and
+	// dropped it, so caves lit by EdenVoxelGI stayed sunlit in Compatibility.
+	diffuse_light *= ao;
 	diffuse_light *= albedo;
 	diffuse_light *= 1.0 - metallic;
 	ambient_light *= 1.0 - metallic;
