@@ -3,7 +3,8 @@ extends CanvasLayer
 ## In-game debug modes for EdenPlayer (it adds one). Keys:
 ##   F2 god mode      a flag for anything harmful to check (the demo has no damage yet)
 ##   F3 creative      999 of every item, so digging, placing and building never run out (restored when off)
-##   F4 fly           free flight with collision: WASD along the view, Space up, Ctrl/C down, Shift x8
+##   F4 fly           free flight with collision: WASD along the view, Space up, Ctrl/C down, Shift x8,
+##                    Alt + mouse wheel sets the speed
 ##   F5 no-clip       the same flight through terrain, trees and buildings
 ##   F6 collisions    draws every collision shape (terrain included)
 ##   F7 draw mode     normal -> wireframe -> unshaded -> lighting -> overdraw
@@ -15,6 +16,10 @@ const DRAW_MODES := [
 	["unshaded", Viewport.DEBUG_DRAW_UNSHADED], ["lighting", Viewport.DEBUG_DRAW_LIGHTING],
 	["overdraw", Viewport.DEBUG_DRAW_OVERDRAW],
 ]
+# Flight speed range (m/s, before Shift's x8) and the factor one wheel notch scales it by
+const FLY_SPEED_MIN := 2.0
+const FLY_SPEED_MAX := 250.0
+const FLY_SPEED_STEP := 1.25
 
 var god := false
 var creative := false
@@ -50,6 +55,18 @@ func setup(player: EdenPlayer) -> void:
 ## Flying one way or the other: the player moves with fly_step() instead of walking
 func flying() -> bool:
 	return fly or noclip
+
+
+# Alt + wheel sets the flight speed while flying; the plain wheel keeps picking the slot / turning a piece. In
+# _input, ahead of EdenMiner's and EdenBuilder's _unhandled_input, so an Alt notch doesn't reach them too.
+func _input(event: InputEvent) -> void:
+	if not flying() or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		return
+	if event is InputEventMouseButton and event.pressed and event.alt_pressed \
+			and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		var step := FLY_SPEED_STEP if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / FLY_SPEED_STEP
+		fly_speed = clampf(fly_speed * step, FLY_SPEED_MIN, FLY_SPEED_MAX)
+		get_viewport().set_input_as_handled()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -107,7 +124,9 @@ func _process(_delta: float) -> void:
 		if changed:
 			_player.miner.refresh()
 	var modes: Array[String] = []
-	for m in [["GOD", god], ["CREATIVE", creative], ["FLY", fly], ["NOCLIP", noclip], ["COLLISIONS", get_tree().debug_collisions_hint]]:
+	var speed := " %d m/s" % roundi(fly_speed)
+	for m in [["GOD", god], ["CREATIVE", creative], ["FLY" + speed, fly], ["NOCLIP" + speed, noclip],
+			["COLLISIONS", get_tree().debug_collisions_hint]]:
 		if m[1]:
 			modes.append(m[0])
 	if draw_mode != 0:
