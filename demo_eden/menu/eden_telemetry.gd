@@ -2,7 +2,10 @@ extends Node
 ## Autoload (EdenTelemetry): anonymous diagnostics for the developer's dashboard (Projects/eden-telemetry). Sends PC specs
 ## once per run, a performance summary every 30 s (average/min FPS, 99th-percentile frame time, hitches, memory),
 ## hitches and error-log lines in batches, and, when the previous run never exited cleanly, that run's log tail
-## as a crash report. Identified only by a random install id; players switch it off in Settings (or the launcher's menu).
+## as a crash report. The main menu and the game world are measured apart: each time the scene changes between them a
+## new session starts ("<run>-menu1", "<run>-game2", ...), so menu frame rates never blend into the world's, and a crash is
+## attributed to the one it happened in. Identified only by a random install id; players switch it off in Settings
+## (or the launcher's menu).
 ## Shared with the launcher through %APPDATA%/EdenProject/telemetry.json: {enabled, install_id}.
 ## Off in the editor unless run with `-- --telemetry`.
 
@@ -13,10 +16,20 @@ const HITCH_MS := 100.0
 const LOG_TAIL := 60_000
 const MARKER := "user://telemetry_running.json"
 
+## A new session's first seconds (loading the world, building the menu) aren't measured
+const SEGMENT_GRACE_MS := 4000
+
 var enabled := true
 var install_id := ""
+## The current session ("" until the first scene is known) and what it measures: "menu" or "game"
 var session_id := ""
+var context := ""
 
+var _run_id := ""
+var _seg_n := 0
+var _seg_ms := 0
+var _ctx_t := 0.0
+var _pending := 0 # reports sent and not yet answered
 var _url := URL
 var _hitches: Array[Dictionary] = []
 var _hitch_count := 0
@@ -93,7 +106,7 @@ func _ready() -> void:
 		set_process(false)
 		return
 	_version = str(ProjectSettings.get_setting("application/config/version", "dev"))
-	session_id = Crypto.new().generate_random_bytes(8).hex_encode()
+	_run_id = Crypto.new().generate_random_bytes(8).hex_encode()
 	_buckets.resize(501)
 	var lg := ErrorLogger.new()
 	lg.owner_node = self
@@ -110,9 +123,51 @@ func note_error(msg: String) -> void: # (any thread)
 	_lock.unlock()
 
 
+## "menu" or "game" for the scene that is running, "" for anything else (the current session carries on)
+func _context_now() -> String:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return ""
+	var path := scene.scene_file_path
+	if "main_menu" in path:
+		return "menu"
+	if "eden_play" in path:
+		return "game"
+	return ""
+
+
+## Closes the session that was running (its last numbers and events go out under its own id) and starts the next
+func _switch_context(c: String) -> void:
+	if context != "":
+		_flush()
+		if _frames >= 30:
+			_send(_perf(true))
+	context = c
+	_seg_n += 1
+	session_id = "%s-%s%d" % [_run_id, c, _seg_n]
+	_frames = 0
+	_time = 0.0
+	_buckets.fill(0)
+	_min_fps = 0.0
+	_win_frames = 0
+	_win_t = 0.0
+	_hitch_count = 0
+	_hitches.clear()
+	_report_t = REPORT_EVERY
+	_flush_t = FLUSH_EVERY
+	_seg_ms = Time.get_ticks_msec()
+	_write_marker()
+
+
 func _process(delta: float) -> void:
-	if Time.get_ticks_msec() < 8000: # start-up loading is slow by nature
-		return
+	_ctx_t -= delta
+	if _ctx_t <= 0.0:
+		_ctx_t = 0.25
+		var c := _context_now()
+		if c != "" and c != context:
+			_switch_context(c)
+	if context == "" or Time.get_ticks_msec() < 8000 or Time.get_ticks_msec() - _seg_ms < SEGMENT_GRACE_MS:
+		return # (start-up and loading are slow by nature)
 	_frames += 1
 	_time += delta
 	_buckets[mini(int(delta * 1000.0), 500)] += 1
@@ -125,8 +180,7 @@ func _process(delta: float) -> void:
 		_win_t = 0.0
 	if delta * 1000.0 > HITCH_MS and get_window().has_focus() and _hitches.size() < 20:
 		_hitch_count += 1
-		var scene := get_tree().current_scene
-		_hitches.append({"ms": snappedf(delta * 1000.0, 0.1), "scene": scene.name if scene else "", "at_s": snappedf(_time, 0.1)})
+		_hitches.append({"ms": snappedf(delta * 1000.0, 0.1), "scene": context, "at_s": snappedf(_time, 0.1)})
 	elif delta * 1000.0 > HITCH_MS and get_window().has_focus():
 		_hitch_count += 1
 	_report_t -= delta
@@ -140,7 +194,6 @@ func _process(delta: float) -> void:
 
 
 func _perf(clean: bool) -> Dictionary:
-	var scene := get_tree().current_scene
 	var count := 0
 	for b in _buckets:
 		count += b
@@ -153,7 +206,7 @@ func _perf(clean: bool) -> Dictionary:
 			break
 	return {"kind": "perf", "ended_clean": clean, "game_version": _version, "avg_fps": _frames / maxf(_time, 0.001) if _frames > 0 else 0.0,
 			"min_fps": _min_fps, "p99_ms": p99, "hitches": _hitch_count, "mem_mb": _system_ram_used_mb(), # (the engine's own counter reads 0 in release builds)
-			"scene": scene.name if scene else ""}
+			"scene": context}
 
 
 ## RAM in use on the whole machine
@@ -182,15 +235,20 @@ func clean_exit() -> void:
 	if not _active():
 		return
 	_flush()
-	_send(_perf(true))
+	if context != "" and _frames >= 30:
+		_send(_perf(true))
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(MARKER))
-	await get_tree().create_timer(0.4).timeout # let the last requests leave before the process ends
+	# let the last reports leave before the process ends (a fixed short wait lost the final one when the game was busy)
+	var waited := 0.0
+	while _pending > 0 and waited < 1.5:
+		await get_tree().create_timer(0.05).timeout
+		waited += 0.05
 
 
 func _write_marker() -> void:
 	var f := FileAccess.open(MARKER, FileAccess.WRITE)
 	if f:
-		f.store_string(JSON.stringify({"session": session_id}))
+		f.store_string(JSON.stringify({"run": _run_id, "session": session_id, "context": context}))
 
 
 ## A leftover marker means the previous run died: report it with that run's log
@@ -198,7 +256,8 @@ func _report_previous_crash() -> void:
 	if not FileAccess.file_exists(MARKER):
 		return
 	var m = JSON.parse_string(FileAccess.get_file_as_string(MARKER))
-	var prev := str(m.session) if m is Dictionary else ""
+	# (the session that was running; a run that died before any scene was known only has its run id)
+	var prev := (str(m.get("session", "")) if str(m.get("session", "")) != "" else str(m.get("run", ""))) if m is Dictionary else ""
 	if prev == "":
 		return
 	var newest := ""
@@ -243,6 +302,10 @@ func _send(body: Dictionary) -> void:
 	var req := HTTPRequest.new()
 	req.timeout = 10.0
 	add_child(req)
-	req.request_completed.connect(func(_r, _c, _h, _b): req.queue_free())
+	_pending += 1
+	req.request_completed.connect(func(_r, _c, _h, _b):
+		_pending -= 1
+		req.queue_free())
 	if req.request(_url, ["Content-Type: application/json", "User-Agent: EdenGame/" + _version], HTTPClient.METHOD_POST, JSON.stringify(body, "", true, true)) != OK:
+		_pending -= 1
 		req.queue_free()

@@ -43,7 +43,7 @@ static func local_url() -> String:
 ## The developer's dedicated server(s). The list is fetched from OFFICIAL_LIST_URL (so the address can change without
 ## a game update); this is used until that answers, or when it can't be reached.
 const OFFICIAL_LIST_URL := "https://edenprojectgame.com/servers.json"
-const OFFICIAL_FALLBACK := [{"name": "Eden Test Server", "url": "http://162.81.242.157:3180"}]
+const OFFICIAL_FALLBACK := [{"name": "Eden Test Server", "url": "https://test.edenprojectgame.com:443"}]
 static var official: Array = OFFICIAL_FALLBACK.duplicate()
 
 
