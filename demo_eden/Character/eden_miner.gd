@@ -165,7 +165,6 @@ func place() -> bool:
 		edited.emit(target_position, sh[2], sh[1], 0)
 		return true
 	if selected < 0:
-		_toast_msg("Nothing in hand")
 		return false
 	if ITEMS[selected][1] < 0:
 		_toast_msg("%s is for building: G for the hammer" % ITEMS[selected][0])
