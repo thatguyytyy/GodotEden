@@ -504,6 +504,17 @@ public static partial class Module
         }
     }
 
+    // Empties the chat (everyone's chat window drops it live; the game keeps what a client already showed on screen)
+    [Reducer]
+    public static void admin_clear_chat(ReducerContext ctx)
+    {
+        RequireAdmin(ctx);
+        foreach (var m in System.Linq.Enumerable.ToList(ctx.Db.chat_message.Iter()))
+        {
+            ctx.Db.chat_message.id.Delete(m.id);
+        }
+    }
+
     [Reducer]
     public static void set_name(ReducerContext ctx, string name)
     {
