@@ -159,7 +159,12 @@ public static partial class Module
     [Reducer]
     public static void send_chat(ReducerContext ctx, string text, byte kind)
     {
+        NotBanned(ctx);
         var p = ctx.Db.player.identity.Find(ctx.Sender) ?? throw new System.Exception("Join with set_name first");
+        if (ctx.Db.mute.identity.Find(ctx.Sender) is not null)
+        {
+            throw new System.Exception("You are muted");
+        }
         text = text.Trim();
         if (text.Length == 0 || text.Length > MaxChatText)
         {
@@ -209,6 +214,7 @@ public static partial class Module
     [Reducer]
     public static void add_snow_trail(ReducerContext ctx, System.Collections.Generic.List<float> points)
     {
+        NotBanned(ctx);
         if (points.Count == 0 || points.Count % 3 != 0 || points.Count > MaxTrailPoints * 3)
         {
             throw new System.Exception("Bad trail");
@@ -232,7 +238,10 @@ public static partial class Module
     [Reducer]
     public static void set_weather(ReducerContext ctx, System.Collections.Generic.List<float> state)
     {
-        if (ctx.Db.world_meta.id.Find(0) is WorldMeta meta && meta.owner != ctx.Sender)
+        // The owner sets it. A dedicated world's owner (the server's admin) never joins as a player, so there any
+        // joined player may (the clients agree on one of them to do it).
+        if (ctx.Db.world_meta.id.Find(0) is WorldMeta meta && meta.owner != ctx.Sender
+            && (ctx.Db.player.identity.Find(meta.owner) is not null || ctx.Db.player.identity.Find(ctx.Sender) is null))
         {
             throw new System.Exception("Only the host sets the weather");
         }
@@ -281,6 +290,7 @@ public static partial class Module
     [Reducer]
     public static void set_clock(ReducerContext ctx, double days, double days_per_second)
     {
+        NotBanned(ctx);
         if (ctx.Db.player.identity.Find(ctx.Sender) is null)
         {
             throw new System.Exception("Join with set_name first");
@@ -314,6 +324,10 @@ public static partial class Module
     [Reducer(ReducerKind.ClientConnected)]
     public static void ClientConnected(ReducerContext ctx)
     {
+        if (ctx.Db.ban.identity.Find(ctx.Sender) is not null)
+        {
+            throw new System.Exception("You are banned from this server"); // (an error here refuses the connection)
+        }
         if (ctx.Db.player.identity.Find(ctx.Sender) is Player p)
         {
             p.online = true;
@@ -331,9 +345,180 @@ public static partial class Module
         }
     }
 
+    // ---- Server admin ----------------------------------------------------------------------------------------
+    // Only the world's owner (a dedicated server's admin identity; the web portal calls these) may use the admin_*
+    // reducers. Identities travel as hex text ("0x...") so the portal and the CLI can pass them easily.
+
+    // Banned identities: refused at connection, and their reducers fail (the game also sends a banned player away)
+    [Table(Accessor = "ban", Public = true)]
+    public partial struct Ban
+    {
+        [PrimaryKey]
+        public Identity identity;
+        public string name;
+        public string reason;
+        public Timestamp at;
+    }
+
+    // Players who can't speak in chat
+    [Table(Accessor = "mute")]
+    public partial struct Mute
+    {
+        [PrimaryKey]
+        public Identity identity;
+    }
+
+    // "0x" + 64 hex digits, or just the digits
+    static Identity ParseIdentity(string hex)
+    {
+        hex = hex.Trim();
+        return Identity.FromHexString(hex.StartsWith("0x") ? hex.Substring(2) : hex);
+    }
+
+    static void RequireAdmin(ReducerContext ctx)
+    {
+        if (ctx.Db.world_meta.id.Find(0) is not WorldMeta meta || meta.owner != ctx.Sender)
+        {
+            throw new System.Exception("Admin only");
+        }
+    }
+
+    // Called first by every player reducer
+    static void NotBanned(ReducerContext ctx)
+    {
+        if (ctx.Db.ban.identity.Find(ctx.Sender) is not null)
+        {
+            throw new System.Exception("You are banned from this server");
+        }
+    }
+
+    static void Announce(ReducerContext ctx, string text)
+    {
+        var row = ctx.Db.chat_message.Insert(new ChatMessage { sender = ctx.Sender, name = "Server", text = text, kind = 2, at = ctx.Timestamp });
+        if (row.id > MaxChatKept)
+        {
+            foreach (var m in System.Linq.Enumerable.ToList(ctx.Db.chat_message.Iter()))
+            {
+                if (m.id <= row.id - MaxChatKept)
+                {
+                    ctx.Db.chat_message.id.Delete(m.id);
+                }
+            }
+        }
+    }
+
+    [Reducer]
+    public static void admin_announce(ReducerContext ctx, string text)
+    {
+        RequireAdmin(ctx);
+        text = text.Trim();
+        if (text.Length == 0 || text.Length > MaxChatText)
+        {
+            throw new System.Exception($"Announcements are 1-{MaxChatText} characters");
+        }
+        Announce(ctx, text);
+    }
+
+    [Reducer]
+    public static void admin_set_clock(ReducerContext ctx, double days, double days_per_second)
+    {
+        RequireAdmin(ctx);
+        if (!double.IsFinite(days) || days < 0 || !double.IsFinite(days_per_second) || days_per_second < 0 || days_per_second > 1.0)
+        {
+            throw new System.Exception("Bad clock");
+        }
+        var row = new WorldClock { id = 0, days = days, set_at = ctx.Timestamp, days_per_second = days_per_second };
+        if (ctx.Db.world_clock.id.Find(0) is null)
+        {
+            ctx.Db.world_clock.Insert(row);
+        }
+        else
+        {
+            ctx.Db.world_clock.id.Update(row);
+        }
+    }
+
+    [Reducer]
+    public static void admin_ban(ReducerContext ctx, string identity_hex, string reason)
+    {
+        RequireAdmin(ctx);
+        var id = ParseIdentity(identity_hex);
+        if (ctx.Db.world_meta.id.Find(0) is WorldMeta meta && meta.owner == id)
+        {
+            throw new System.Exception("Can't ban the admin");
+        }
+        var name = ctx.Db.player.identity.Find(id) is Player p ? p.name : "";
+        var row = new Ban { identity = id, name = name, reason = reason.Length > 200 ? reason.Substring(0, 200) : reason, at = ctx.Timestamp };
+        if (ctx.Db.ban.identity.Find(id) is null)
+        {
+            ctx.Db.ban.Insert(row);
+            Announce(ctx, name != "" ? $"{name} was removed from the server." : "A player was removed from the server.");
+        }
+        else
+        {
+            ctx.Db.ban.identity.Update(row);
+        }
+    }
+
+    [Reducer]
+    public static void admin_unban(ReducerContext ctx, string identity_hex)
+    {
+        RequireAdmin(ctx);
+        ctx.Db.ban.identity.Delete(ParseIdentity(identity_hex));
+    }
+
+    [Reducer]
+    public static void admin_mute(ReducerContext ctx, string identity_hex, bool muted)
+    {
+        RequireAdmin(ctx);
+        var id = ParseIdentity(identity_hex);
+        if (muted && ctx.Db.mute.identity.Find(id) is null)
+        {
+            ctx.Db.mute.Insert(new Mute { identity = id });
+        }
+        else if (!muted)
+        {
+            ctx.Db.mute.identity.Delete(id);
+        }
+    }
+
+    // Wipes everyone's building pieces (clients show the change when they next join)
+    [Reducer]
+    public static void admin_clear_builds(ReducerContext ctx)
+    {
+        RequireAdmin(ctx);
+        foreach (var b in System.Linq.Enumerable.ToList(ctx.Db.build_piece.Iter()))
+        {
+            ctx.Db.build_piece.id.Delete(b.id);
+        }
+    }
+
+    // Wipes the terrain edits (digging, placing, felling), so the planet is as the generator made it again for anyone who joins
+    [Reducer]
+    public static void admin_clear_edits(ReducerContext ctx)
+    {
+        RequireAdmin(ctx);
+        foreach (var e in System.Linq.Enumerable.ToList(ctx.Db.voxel_edit.Iter()))
+        {
+            ctx.Db.voxel_edit.id.Delete(e.id);
+        }
+    }
+
+    // Empties the chat (everyone's chat window drops it live; the game keeps what a client already showed on screen)
+    [Reducer]
+    public static void admin_clear_chat(ReducerContext ctx)
+    {
+        RequireAdmin(ctx);
+        foreach (var m in System.Linq.Enumerable.ToList(ctx.Db.chat_message.Iter()))
+        {
+            ctx.Db.chat_message.id.Delete(m.id);
+        }
+    }
+
     [Reducer]
     public static void set_name(ReducerContext ctx, string name)
     {
+        NotBanned(ctx);
         name = name.Trim();
         if (name.Length == 0 || name.Length > MaxName)
         {
@@ -354,6 +539,7 @@ public static partial class Module
     [Reducer]
     public static void update_player(ReducerContext ctx, double x, double y, double z, float yaw, string state, float speed)
     {
+        NotBanned(ctx);
         if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(z) || !float.IsFinite(yaw) || !float.IsFinite(speed))
         {
             throw new System.Exception("Bad position");
@@ -383,6 +569,7 @@ public static partial class Module
     [Reducer]
     public static void place_piece(ReducerContext ctx, string kind, double x, double y, double z, float qx, float qy, float qz, float qw)
     {
+        NotBanned(ctx);
         CheckReach(ctx, x, y, z);
         if (System.Array.IndexOf(PieceKinds, kind) < 0 || !float.IsFinite(qx + qy + qz + qw))
         {
@@ -394,6 +581,7 @@ public static partial class Module
     [Reducer]
     public static void remove_piece(ReducerContext ctx, ulong id)
     {
+        NotBanned(ctx);
         var piece = ctx.Db.build_piece.id.Find(id) ?? throw new System.Exception("No such piece");
         CheckReach(ctx, piece.x, piece.y, piece.z);
         ctx.Db.build_piece.id.Delete(id);
@@ -425,6 +613,7 @@ public static partial class Module
     [Reducer]
     public static void set_inventory(ReducerContext ctx, System.Collections.Generic.List<int> counts)
     {
+        NotBanned(ctx);
         if (ctx.Db.player.identity.Find(ctx.Sender) is null)
         {
             throw new System.Exception("Join with set_name first");
@@ -482,6 +671,7 @@ public static partial class Module
     [Reducer]
     public static void add_voxel_edit(ReducerContext ctx, double x, double y, double z, float radius, byte mode, byte material)
     {
+        NotBanned(ctx);
         var p = ctx.Db.player.identity.Find(ctx.Sender) ?? throw new System.Exception("Join with set_name first");
         var dx = x - p.x;
         var dy = y - p.y;

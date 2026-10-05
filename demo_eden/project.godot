@@ -11,6 +11,7 @@ config_version=5
 [application]
 
 config/name="EdenDemo"
+config/version="0.1.5"
 run/main_scene="res://menu/main_menu.tscn"
 config/features=PackedStringArray("4.6")
 
@@ -19,6 +20,7 @@ config/features=PackedStringArray("4.6")
 EdenApp="*res://menu/eden_app.gd"
 EdenMusic="*res://menu/eden_music.gd"
 EdenSteam="*res://menu/eden_steam.gd"
+EdenTelemetry="*res://menu/eden_telemetry.gd"
 
 [display]
 

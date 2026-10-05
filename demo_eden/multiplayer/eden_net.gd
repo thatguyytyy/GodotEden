@@ -111,7 +111,7 @@ func _process(delta: float) -> void:
 			if _inventory_dirty and _inventory_t <= 0.0 and status == "online":
 				_send_inventory()
 			_weather_t -= delta
-			if _weather_t <= 0.0 and status == "online" and identity == host_identity and _player._ambience:
+			if _weather_t <= 0.0 and status == "online" and _is_weather_authority() and _player._ambience:
 				_weather_t = WEATHER_INTERVAL
 				_call("set_weather", [Array(_player._ambience.get_weather_state())])
 			_trail_t -= delta
@@ -212,7 +212,7 @@ func _on_message(text: String) -> void:
 		_request += 1
 		_ws.send_text(JSON.stringify({"Subscribe": {
 			"query_strings": ["SELECT * FROM player", "SELECT * FROM voxel_edit", "SELECT * FROM build_piece", "SELECT * FROM world_clock",
-					"SELECT * FROM player_inventory", "SELECT * FROM world_meta", "SELECT * FROM world_weather", "SELECT * FROM snow_trail", "SELECT * FROM chat_message"], "request_id": _request}}))
+					"SELECT * FROM player_inventory", "SELECT * FROM world_meta", "SELECT * FROM world_weather", "SELECT * FROM snow_trail", "SELECT * FROM chat_message", "SELECT * FROM ban"], "request_id": _request}}))
 		_call("set_name", [player_name])
 	elif msg.has("InitialSubscription"):
 		_apply_update(msg.InitialSubscription.database_update)
@@ -248,10 +248,23 @@ func _leave(reason: String) -> void:
 
 # Playing without the host (it left to the menu, quit or crashed: its connection closed) isn't allowed
 func _check_host() -> void:
-	if status == "online" and host_identity != "" and identity != host_identity \
-			and not players.get(host_identity, {}).get("online", false):
+	# (a dedicated world's owner never joins as a player: no row, nobody to wait for)
+	if status == "online" and host_identity != "" and identity != host_identity and players.has(host_identity) \
+			and not players[host_identity].get("online", false):
 		status = "left"
 		_leave("The host left the world.")
+
+
+## Who sets the world's weather: its host; in a dedicated world (no host player) the online player whose identity
+## sorts first, which every client works out the same way
+func _is_weather_authority() -> bool:
+	if host_identity == "" or players.has(host_identity):
+		return identity == host_identity
+	var first := ""
+	for id in players:
+		if players[id].get("online", false) and (first == "" or id < first):
+			first = id
+	return first == identity
 
 
 func _apply_update(db_update: Dictionary) -> void:
@@ -288,6 +301,12 @@ func _apply_update(db_update: Dictionary) -> void:
 						if chat_log.size() > 100:
 							chat_log.pop_front()
 						chat_received.emit(_id(row.sender), str(row.name), str(row.text), int(row.kind), status == "online")
+				"ban": # column order: identity name reason at
+					for r in inserts:
+						var row := _row(r)
+						if _id(row._array[0] if row.has("_array") else row.identity) == identity and status == "online":
+							status = "left"
+							_leave("You were removed from this server.")
 				"world_meta": # column order: id name seed owner created_at settings
 					for r in inserts:
 						var row := _row(r)
@@ -302,7 +321,7 @@ func _apply_update(db_update: Dictionary) -> void:
 					for r in inserts:
 						var row := _row(r)
 						var state: Array = row._array[1] if row.has("_array") else row.state
-						if identity != host_identity and _player._ambience:
+						if not _is_weather_authority() and _player._ambience:
 							_player._ambience.set_weather_state(PackedFloat32Array(state))
 				"player_inventory":
 					for r in inserts:

@@ -273,6 +273,8 @@ func _setup_scene() -> void:
 				net.player_name = a.trim_prefix("--name=")
 			elif a.begins_with("--server="):
 				net.server_url = a.trim_prefix("--server=")
+			elif a.begins_with("--database="):
+				net.database = a.trim_prefix("--database=")
 		add_child(net)
 		net.setup(self)
 

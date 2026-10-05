@@ -206,6 +206,8 @@ func _info(text: String, error := false) -> void:
 func _add_line(_sender: String, sender_name: String, text: String, kind: int) -> void:
 	if kind == 1:
 		_append([[COLOR_EMOTE, "* %s %s" % [sender_name, text]]])
+	elif kind == 2: # a server announcement (the admin portal)
+		_append([[COLOR_INFO, "[Server] " + text]])
 	else:
 		_append([[COLOR_NAME, sender_name + ": "], [COLOR_SAY, text]])
 	lines.append({"text": text, "kind": kind, "name": sender_name})

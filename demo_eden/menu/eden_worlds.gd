@@ -40,14 +40,32 @@ static func local_url() -> String:
 # ------------------------------------------------------------------------------------------------------------
 # Server list and tokens
 
-## [{name, url, local}]: this computer first, then the added servers
+## The developer's dedicated server(s). The list is fetched from OFFICIAL_LIST_URL (so the address can change without
+## a game update); this is used until that answers, or when it can't be reached.
+const OFFICIAL_LIST_URL := "https://edenprojectgame.com/servers.json"
+const OFFICIAL_FALLBACK := [{"name": "Eden Test Server", "url": "https://test.edenprojectgame.com:443"}]
+static var official: Array = OFFICIAL_FALLBACK.duplicate()
+
+
+## [{name, url, local, official}]: this computer first, then the official servers, then the added ones
 static func servers() -> Array[Dictionary]:
 	var list: Array[Dictionary] = [{"name": "This computer", "url": local_url(), "local": true}]
+	for s in official:
+		list.append({"name": str(s.name), "url": normalize_url(str(s.url)), "local": false, "official": true})
 	var cfg := ConfigFile.new()
 	if cfg.load(SERVERS_PATH) == OK:
 		for s in cfg.get_value("servers", "list", []):
-			list.append({"name": str(s.name), "url": str(s.url), "local": false})
+			if not list.any(func(o): return o.url == str(s.url)):
+				list.append({"name": str(s.name), "url": str(s.url), "local": false})
 	return list
+
+
+## Refreshes `official` from the server list on the developer's file server; keeps the current one if it can't
+func fetch_official() -> void:
+	var r: Dictionary = await _http(OFFICIAL_LIST_URL, HTTPClient.METHOD_GET, "", PackedStringArray(["User-Agent: EdenGame/list"]))
+	var data = JSON.parse_string(r.text) if r.ok else null
+	if data is Array and not data.is_empty() and data.all(func(s): return s is Dictionary and s.has("name") and s.has("url")):
+		official = data
 
 
 static func add_server(server_name: String, address: String) -> String:
@@ -180,11 +198,12 @@ func list_worlds(server: String) -> Array[Dictionary]:
 		var players = await sql(server, str(row[0]), "SELECT * FROM player")
 		if players == null:
 			continue # listed but gone
+		var meta := await world_meta(server, str(row[0]))
 		var online := 0
 		for p in players: # identity name online ...
-			if p[2]:
+			# (a dedicated server's own agent, the owner named "Server", is there, not playing)
+			if p[2] and not (str(p[1]) == "Server" and str(p[0]) == str(meta.get("owner", ""))):
 				online += 1
-		var meta := await world_meta(server, str(row[0]))
 		out.append({"database": str(row[0]), "name": str(row[1]), "seed": int(row[2]), "host": str(row[3]), "online": online,
 				"players": players.size(), "settings": meta.get("settings", EdenWorldSettings.DEFAULTS)})
 	return out
@@ -197,7 +216,7 @@ func world_meta(server: String, db: String) -> Dictionary:
 	if rows == null or rows.is_empty():
 		return {}
 	var row: Array = rows[0] # id name seed owner created_at settings
-	return {"name": str(row[1]), "seed": int(row[2]), "settings": EdenWorldSettings.from_json(str(row[5]) if row.size() > 5 else "")}
+	return {"name": str(row[1]), "seed": int(row[2]), "owner": row[3], "settings": EdenWorldSettings.from_json(str(row[5]) if row.size() > 5 else "")}
 
 
 # ------------------------------------------------------------------------------------------------------------
