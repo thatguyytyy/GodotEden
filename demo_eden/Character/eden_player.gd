@@ -696,10 +696,12 @@ func _held(action: String) -> bool:
 	return not typing and Input.is_action_pressed(action)
 
 
-## A panel that needs the pointer is open (settings, calendar, the build menu)
+## A panel that needs the pointer is open (settings, calendar, the build menu, or any visible Control a plugin put in
+## the group "eden_pointer_ui", e.g. EdenInventory's window)
 func ui_open() -> bool:
 	return typing or (settings_menu != null and settings_menu.visible) or (calendar_panel != null and calendar_panel.visible) \
-			or (builder != null and builder._menu != null and builder._menu.visible)
+			or (builder != null and builder._menu != null and builder._menu.visible) \
+			or get_tree().get_nodes_in_group("eden_pointer_ui").any(func(n: Node) -> bool: return n.is_visible_in_tree())
 
 
 func _process(_delta: float) -> void:
@@ -725,7 +727,8 @@ func _process(_delta: float) -> void:
 	_keep_camera_above_snow(up, _delta)
 	if _hud and _hud.visible:
 		var status := "" if ready_to_move else "\nWaiting for terrain collision under the player..."
-		var mine := "\nHold LMB dig / chop trees, RMB place, T brush, 1-6 / wheel select, Tab inventory   G hammer (build)" if miner else ""
+		var mine := ("\nHold LMB dig / chop trees, RMB place, T brush, %s, Tab inventory   G hammer (build)" % (
+				"1-9 / wheel select, Z put away" if miner.external_ui else "1-6 / wheel select")) if miner else ""
 		if net:
 			mine += "\nMultiplayer: %s, %d online" % [net.status, net.online_count()]
 		_hud.text = "%s\nWASD move, Shift run (2x hold: sprint), Ctrl/C crouch, Space jump, mouse look (click)   N / B weather, L lightning, K calendar   Esc settings   F1 hide   F2-F8 debug%s%s" % [

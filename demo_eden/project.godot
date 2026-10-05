@@ -21,6 +21,7 @@ EdenApp="*res://menu/eden_app.gd"
 EdenMusic="*res://menu/eden_music.gd"
 EdenSteam="*res://menu/eden_steam.gd"
 EdenTelemetry="*res://menu/eden_telemetry.gd"
+EdenInventory="*uid://beurq3hqu4luy"
 
 [display]
 
@@ -35,7 +36,7 @@ movie_writer/fps=30
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/eden_debug_probe/plugin.cfg")
+enabled=PackedStringArray("res://addons/eden_debug_probe/plugin.cfg", "res://addons/eden_inventory/plugin.cfg")
 
 [global_group]
 

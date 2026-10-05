@@ -52,6 +52,9 @@ const SHAPES := [
 
 var counts: Array[int] = [0, 0, 0, 0, 0, 0]
 var selected := 0
+## Set before setup() by a plugin that draws its own hotbar and inventory (EdenInventory): no hotbar or inventory
+## panel is made here and 1-6, the wheel and Tab are left to it; selected can then be -1 (nothing in hand)
+var external_ui := false
 var shape := 0
 ## Where the crosshair meets the ground within reach (has_target false otherwise)
 var has_target := false
@@ -161,6 +164,9 @@ func place() -> bool:
 		apply_edit(target_position, sh[2], sh[1], 0)
 		edited.emit(target_position, sh[2], sh[1], 0)
 		return true
+	if selected < 0:
+		_toast_msg("Nothing in hand")
+		return false
 	if ITEMS[selected][1] < 0:
 		_toast_msg("%s is for building: G for the hammer" % ITEMS[selected][0])
 		return false
@@ -259,8 +265,9 @@ func toast(text: String) -> void:
 	_toast_msg(text)
 
 
+## Picks the item in hand (-1: nothing, with external_ui)
 func select(slot: int) -> void:
-	selected = posmod(slot, ITEMS.size())
+	selected = -1 if slot < 0 and external_ui else posmod(slot, ITEMS.size())
 	_refresh_ui()
 
 
@@ -268,18 +275,18 @@ func select(slot: int) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	for i in ITEMS.size():
-		if enabled and event.is_action_pressed("slot_%d" % (i + 1)):
+		if enabled and not external_ui and event.is_action_pressed("slot_%d" % (i + 1)):
 			select(i)
 	if enabled and event.is_action_pressed("terrain_shape"):
 		shape = (shape + 1) % SHAPES.size()
 		_toast_msg("Brush: %s" % SHAPES[shape][0])
 		_refresh_ui()
-	if event.is_action_pressed("inventory"):
+	if not external_ui and event.is_action_pressed("inventory"):
 		_panel.visible = not _panel.visible
 	if enabled and event is InputEventMouseButton and event.pressed and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP and not external_ui:
 			select(selected - 1)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and not external_ui:
 			select(selected + 1)
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			place()
@@ -420,6 +427,17 @@ func _build_ui() -> void:
 	cross.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	root.add_child(cross)
 
+	_toast = Label.new()
+	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_toast.position.y -= 110
+	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_toast.add_theme_color_override("font_outline_color", Color.BLACK)
+	_toast.add_theme_constant_override("outline_size", 5)
+	root.add_child(_toast)
+	if external_ui:
+		return
+
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 6)
 	bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
@@ -455,15 +473,6 @@ func _build_ui() -> void:
 	_panel_label = Label.new()
 	_panel.add_child(_panel_label)
 	root.add_child(_panel)
-
-	_toast = Label.new()
-	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_toast.position.y -= 110
-	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_toast.add_theme_color_override("font_outline_color", Color.BLACK)
-	_toast.add_theme_constant_override("outline_size", 5)
-	root.add_child(_toast)
 
 
 func _slot_style(on: bool) -> StyleBoxFlat:
