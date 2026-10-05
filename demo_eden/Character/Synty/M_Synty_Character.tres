@@ -1,7 +1,0 @@
-[gd_resource type="StandardMaterial3D" format=3]
-
-[ext_resource type="Texture2D" uid="uid://dkwhqeftkltqo" path="res://Character/Synty/T_Polygon_Dummy_01.png" id="1_tex"]
-
-[resource]
-resource_name = "M_COSTUME"
-albedo_texture = ExtResource("1_tex")

@@ -1,5 +1,0 @@
-{
-  "native-aot": true,
-  "server": "local",
-  "module-path": "./spacetimedb"
-}

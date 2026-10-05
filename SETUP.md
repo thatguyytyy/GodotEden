@@ -2,7 +2,9 @@
 
 GodotEden is a fork of Godot 4.6 with engine modules for a voxel planet game: a forked voxel module, planet
 generators, atmosphere, ocean, ambience/weather and foliage. The game project that uses it lives in a separate
-repository (eden-project); this repository also carries `demo_eden/`, a playable test planet.
+repository (eden-project); the playable test planet, eden-demo, is
+also separate (`C:\DEV_DRIVE\Dev\Projects\eden-demo`, formerly `demo_eden/` in this repository). Paths below
+marked `eden-demo/` are in that project.
 
 Windows x64 is the supported platform. The build is Vulkan (Forward+).
 
@@ -15,7 +17,7 @@ Windows x64 is the supported platform. The build is Vulkan (Forward+).
 | Git (and access to the private `ZundleFire/EdenModules` repo) | cloning | see step 2 |
 | [ISPC](https://ispc.github.io/) | optional: SIMD noise in the voxel module | on PATH, or set `ISPC_PATH`; without it a scalar fallback is built |
 | ONNX Runtime 1.20.1 (win-x64-gpu) | optional: `eden_terrain_diffusion` | see step 4 |
-| SpacetimeDB CLI 2.7 and .NET 8 SDK | optional: multiplayer | see `demo_eden/multiplayer/README.md` |
+| SpacetimeDB CLI 2.7 and .NET 8 SDK | optional: multiplayer | see `eden-demo/multiplayer/README.md` |
 | ffmpeg | optional: encoding recorded clips | |
 
 ## 2. Clone with submodules
@@ -57,8 +59,8 @@ running the `.bat` through another shell (for example `cmd /c` from Git Bash) ca
 
 These are kept out of git because of their size (`.gitignore`); copy them in from the project's asset storage.
 
-- **Space panoramas**: `demo_eden/Panoramics/SkySphere_01.HDR` … `SkySphere_20.HDR` (about 2 GB; the `.import`
-  files are in git). After copying, run `python demo_eden/set_panorama_import.py` so they import at a size that
+- **Space panoramas**: `eden-demo/Panoramics/SkySphere_01.HDR` … `SkySphere_20.HDR` (about 2 GB; the `.import`
+  files are in git). After copying, run `python eden-demo/set_panorama_import.py` so they import at a size that
   fits in VRAM. Without them the sky falls back to procedural stars, and scenes that reference a panorama log a
   missing-resource error.
 - **ONNX Runtime 1.20.1** for `modules/eden_terrain_diffusion`: extract the official
@@ -69,7 +71,7 @@ These are kept out of git because of their size (`.gitignore`); copy them in fro
 ## 5. Open the demo planet
 
 ```powershell
-bin\godot.windows.editor.x86_64.exe --path demo_eden --editor
+bin\godot.windows.editor.x86_64.exe --path C:\DEV_DRIVE\Dev\Projects\eden-demo --editor
 ```
 
 The first open imports every asset (several minutes). The main scenes:
@@ -83,7 +85,7 @@ The first switch to a higher preset can pause for a long time while shaders comp
 
 ## 6. Tests
 
-Each test runs the real planet scene in a window and prints PASS/FAIL. Run from `demo_eden/`:
+Each test runs the real planet scene in a window and prints PASS/FAIL. Run from `eden-demo/`:
 
 ```powershell
 ..\bin\godot.windows.editor.x86_64.console.exe --path . -s res://_play_test.gd
@@ -96,7 +98,7 @@ python multiplayer/mp_test.py ..\bin\godot.windows.editor.x86_64.console.exe
 
 After adding a script with a new `class_name`, run the editor once with `--import` so other scripts can see it.
 
-Benchmarks and clip recording live in `demo_eden/perf/` (`run_perf_report.py`, `_record_clips.gd`). Close other
+Benchmarks and clip recording live in `eden-demo/perf/` (`run_perf_report.py`, `_record_clips.gd`). Close other
 GPU-heavy programs first: a game running in the background skews the numbers.
 
 ## Where things are
@@ -109,5 +111,4 @@ GPU-heavy programs first: a game running in the background skews the numbers.
 | `modules/eden_erosion`, `eden_stamps`, `eden_icosphere`, `eden_terrain_diffusion` | terrain tooling |
 | `modules/voxel` (submodule) | voxel terrain, GPU-driven renderer, instancer (incl. the no-overlap site grid) |
 | `eden_modules` (submodule) | atmosphere, clouds, rings, parent planet, space panorama, ocean |
-| `demo_eden/` | demo project: character, building, settings/calendar, foliage config, multiplayer, perf tools |
 | `EDEN_SYSTEMS_REFERENCE.md`, `VOXEL_REFERENCE.md` | system reference notes |
