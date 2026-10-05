@@ -396,8 +396,7 @@ $RECYCLE.BIN/
 *.lnk
 *.generated.props
 
-# Too large for git/GitHub (fetch separately): space panoramas, ONNX Runtime + CUDA DLLs
-demo_eden/Panoramics/*.HDR
+# Too large for git/GitHub (fetch separately): ONNX Runtime + CUDA DLLs
 thirdparty/onnxruntime/
 # Decompiled third-party mod, reference only
 vsmod_decompile/

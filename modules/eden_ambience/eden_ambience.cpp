@@ -214,7 +214,7 @@ void EdenAmbience::_build() {
 	};
 	const Spec specs[FX_MAX] = {
 		{ "Motes", 900, 9.0f, 12.0f, 0.04f, 3.0f, 0.0f, Color(1.0f, 0.92f, 0.75f, 1.0f), true, Vector2(-1e9f, 1e9f) },
-		{ "Fireflies", 140, 18.0f, 9.0f, 0.14f, 7.0f, 0.0f, Color(0.95f, 0.9f, 0.35f, 1.0f), true, Vector2(0.3f, 3.5f) },
+		{ "Fireflies", 45, 18.0f, 30.0f, 0.14f, 7.0f, 0.0f, Color(0.95f, 0.9f, 0.35f, 1.0f), true, Vector2(0.3f, 3.5f) },
 		{ "Snow", 3000, 13.0f, 20.0f, 0.09f, 1.0f, 1.1f, Color(0.95f, 0.97f, 1.0f, 0.9f), false, Vector2(-1e9f, 1e9f) },
 		{ "Rain", 3500, 13.0f, 4.0f, 0.14f, 1.4f, 9.0f, Color(0.78f, 0.82f, 0.9f, 0.55f), false, Vector2(-1e9f, 1e9f) },
 		{ "Leaves", 900, 14.0f, 14.0f, 0.18f, 1.0f, 1.0f, Color(0.36f, 0.5f, 0.16f, 1.0f), false, Vector2(-1e9f, 1e9f) },
@@ -1095,6 +1095,30 @@ void EdenAmbience::_update(double p_delta) {
 			if (terrain_mat.is_valid()) {
 				terrain_mat->set_shader_parameter("eden_calendar", cal);
 				terrain_mat->set_shader_parameter("eden_calendar_axis", Vector4(axis.x, axis.y, axis.z, 0.0f));
+			}
+		}
+	}
+	// Floating origin: the planet's frame in world space, followed on the frame it moves (the survey and the weather
+	// map only refresh every fraction of a second). Shaders key their planet-relative maths off it.
+	{
+		Node3D *planet_node = _get_planet();
+		if (planet_node != nullptr && planet_node->is_inside_tree()) {
+			const Transform3D xf = planet_node->get_global_transform();
+			if (xf.origin != planet_frame_pushed.origin || xf.basis != planet_frame_pushed.basis) {
+				planet_frame_pushed = xf;
+				state.center = xf.origin;
+				Ref<ShaderMaterial> terrain_mat = planet_node->get("material");
+				if (weather_planet_pushed.w > 0.0f) {
+					weather_planet_pushed = Vector4(xf.origin.x, xf.origin.y, xf.origin.z, weather_planet_pushed.w);
+					RenderingServer::get_singleton()->global_shader_parameter_set("eden_weather_planet", weather_planet_pushed);
+					if (terrain_mat.is_valid()) {
+						terrain_mat->set_shader_parameter("eden_weather_planet", weather_planet_pushed);
+					}
+				}
+				if (terrain_mat.is_valid()) {
+					terrain_mat->set_shader_parameter("u_planet_center_world", xf.origin);
+					terrain_mat->set_shader_parameter("u_planet_north_world", xf.basis.get_column(1).normalized());
+				}
 			}
 		}
 	}

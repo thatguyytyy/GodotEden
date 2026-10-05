@@ -1,5 +1,0 @@
-[gd_scene format=3 uid="uid://ic1vae1vdxkt"]
-
-[ext_resource type="PackedScene" uid="uid://1ctyk6frwraf" path="res://Character/EDEN_Male.FBX" id="1_qwhoh"]
-
-[node name="EDEN_Male" unique_id=492690397 instance=ExtResource("1_qwhoh")]

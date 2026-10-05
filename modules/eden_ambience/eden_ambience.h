@@ -317,6 +317,7 @@ private:
 	HashMap<StringName, Variant> atmo_pushed;
 	Vector4 weather_params_pushed = Vector4(-1, -1, -1, -1);
 	Vector4 weather_planet_pushed;
+	Transform3D planet_frame_pushed; // the planet node's global transform last pushed to shaders (floating origin)
 	float ov_strength = 0.0f;
 	int ov_mode = WEATHER_AUTO;
 	// set_external_weather() targets, and the eased values in use
