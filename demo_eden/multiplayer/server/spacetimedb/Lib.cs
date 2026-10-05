@@ -335,11 +335,29 @@ public static partial class Module
         }
     }
 
+    // The connection a player joined with (private; set_name records it). Only that connection closing takes the player
+    // offline: other connections by the same identity come and go without touching the flag. That matters for the
+    // dedicated server, whose agent is the world owner and shares its identity with the spacetime CLI and the portal's
+    // admin commands: every `spacetime sql` or `call` used to flip the agent offline when it closed, and the game
+    // sends players away when the host is offline.
+    [Table(Accessor = "player_conn")]
+    public partial struct PlayerConn
+    {
+        [PrimaryKey]
+        public Identity identity;
+        public string connection;
+    }
+
     [Reducer(ReducerKind.ClientDisconnected)]
     public static void ClientDisconnected(ReducerContext ctx)
     {
         if (ctx.Db.player.identity.Find(ctx.Sender) is Player p)
         {
+            var conn = ctx.ConnectionId?.ToString() ?? "";
+            if (ctx.Db.player_conn.identity.Find(ctx.Sender) is PlayerConn pc && pc.connection != conn)
+            {
+                return; // some other connection of theirs closed, not the one that joined
+            }
             p.online = false;
             ctx.Db.player.identity.Update(p);
         }
@@ -533,6 +551,15 @@ public static partial class Module
         else
         {
             ctx.Db.player.Insert(new Player { identity = ctx.Sender, name = name, online = true, state = "idle" });
+        }
+        var joined = new PlayerConn { identity = ctx.Sender, connection = ctx.ConnectionId?.ToString() ?? "" };
+        if (ctx.Db.player_conn.identity.Find(ctx.Sender) is null)
+        {
+            ctx.Db.player_conn.Insert(joined);
+        }
+        else
+        {
+            ctx.Db.player_conn.identity.Update(joined);
         }
     }
 
