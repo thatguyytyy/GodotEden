@@ -265,6 +265,7 @@ void EdenAmbience::_build() {
 	player = memnew(AudioStreamPlayer);
 	player->set_name("Soundscape");
 	player->set_stream(soundscape);
+	player->set_bus(SNAME("Ambience")); // (the game's bus layout: its own volume; falls back to Master without one)
 	add_child(player, false, INTERNAL_MODE_BACK);
 
 	for (int i = 0; i < SURF_EMITTERS + LEAF_EMITTERS; i++) {
@@ -275,6 +276,7 @@ void EdenAmbience::_build() {
 		AudioStreamPlayer *p = memnew(AudioStreamPlayer);
 		p->set_name(surf ? "Surf" : "Leaves");
 		p->set_stream(e.stream);
+		p->set_bus(SNAME("Ambience"));
 		add_child(p, false, INTERNAL_MODE_BACK);
 		e.player = p;
 	}

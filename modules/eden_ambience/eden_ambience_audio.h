@@ -56,6 +56,7 @@ public:
 		SURFACE_DIRT,
 		SURFACE_MOSS,
 		SURFACE_WET,
+		SURFACE_WOOD, // built floors (EdenBuilder pieces)
 	};
 	void trigger_footstep(int p_surface, float p_strength, float p_pan);
 
@@ -122,7 +123,10 @@ class AudioStreamPlaybackEdenAmbience : public AudioStreamPlaybackResampled {
 		bool active = false;
 		int surface = 0;
 		float t = 0, strength = 1, pan = 0;
+		float vary = 1; // this step's timbre (filter frequencies x this), so no two sound alike
+		float toe = 0.09f; // seconds from the heel strike to the toe rolling down
 		float thump = 0, low = 0, band_low = 0, band = 0, crunch = 0, ring = 0;
+		float low2 = 0, band_low2 = 0, band2 = 0, ring2 = 0, grit = 0;
 	};
 	Step steps[4];
 	uint32_t step_seen = 0;

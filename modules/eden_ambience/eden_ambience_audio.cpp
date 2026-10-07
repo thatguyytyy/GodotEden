@@ -96,6 +96,7 @@ void AudioStreamEdenAmbience::_bind_methods() {
 	BIND_ENUM_CONSTANT(SURFACE_DIRT);
 	BIND_ENUM_CONSTANT(SURFACE_MOSS);
 	BIND_ENUM_CONSTANT(SURFACE_WET);
+	BIND_ENUM_CONSTANT(SURFACE_WOOD);
 
 	BIND_ENUM_CONSTANT(LAYER_WIND);
 	BIND_ENUM_CONSTANT(LAYER_LEAVES);
@@ -382,6 +383,8 @@ void AudioStreamPlaybackEdenAmbience::_frame(float &r_l, float &r_r) {
 		slot->surface = s->step_surface.load(std::memory_order_relaxed);
 		slot->strength = s->step_strength.load(std::memory_order_relaxed) * _range(0.8f, 1.1f);
 		slot->pan = s->step_pan.load(std::memory_order_relaxed);
+		slot->vary = _range(0.88f, 1.12f);
+		slot->toe = _range(0.07f, 0.12f);
 	}
 	for (Step &st : steps) {
 		if (st.active) {
@@ -420,63 +423,114 @@ void AudioStreamPlaybackEdenAmbience::_frame(float &r_l, float &r_r) {
 	r_r = std::tanh(r);
 }
 
-// One footstep: a soft heel thump under every surface, plus the surface's own sound -- grass rustles, dirt
-// thuds, rock clicks with a short ring, sand hisses, snow crunches (a burst of tiny grains), wet ground splashes
+// One footstep, heel then toe: the heel strikes (a soft thump under every surface plus the surface's own sound), and
+// 70-120 ms later the toe rolls down with a quieter copy of it. Each step's timbre is shifted a little (vary), so a
+// walk never repeats. Grass rustles, moss squishes softly, dirt thuds with a little grit, sand shifts in fine
+// grains, snow crunches with a cold squeak, rock clicks and scuffs, wood knocks hollow, wet ground splashes.
 void AudioStreamPlaybackEdenAmbience::_step_frame(Step &p_step, float &r_l, float &r_r) {
 	constexpr float dt = 1.0f / RATE;
 	p_step.t += dt;
 	const float T = p_step.t;
-	if (T > 0.35f) {
+	if (T > 0.45f) {
 		p_step.active = false;
 		return;
 	}
+	const float vary = p_step.vary;
+	const float Tt = T - p_step.toe; // the toe's own clock (negative until it lands)
+	// Heel and toe envelopes for a surface sound that decays over `tau` seconds after an `attack`
+	auto hit = [&](float p_attack, float p_tau) {
+		const float heel = _smoothstep(0.0f, p_attack, T) * std::exp(-T / p_tau);
+		const float toe = Tt > 0.0f ? 0.55f * _smoothstep(0.0f, p_attack, Tt) * std::exp(-Tt / p_tau) : 0.0f;
+		return heel + toe;
+	};
 	const float n = _noise();
-	const float a_thump = _lp_coef(260.0f, RATE);
+	const float a_thump = _lp_coef(240.0f * vary, RATE);
 	p_step.thump += (n - p_step.thump) * a_thump;
-	const float thump = p_step.thump / std::sqrt(a_thump) * 0.12f * std::exp(-T / 0.03f) * _smoothstep(0.0f, 0.004f, T);
+	const float thump = p_step.thump / std::sqrt(a_thump) * 0.12f * hit(0.004f, 0.028f);
 	float v = 0.0f;
 	switch (p_step.surface) {
 		case AudioStreamEdenAmbience::SURFACE_ROCK: {
-			const float click = n * std::exp(-T / 0.004f) * 0.35f;
-			p_step.ring += 2300.0f * dt;
-			const float ring = std::sin(TAU_F * p_step.ring) * std::exp(-T / 0.03f) * 0.06f;
-			v = thump * 0.8f + click + ring;
+			// A hard click, a short stony ring, and grit scuffed under the toe
+			const float click = n * (std::exp(-T / 0.003f) + (Tt > 0.0f ? 0.5f * std::exp(-Tt / 0.003f) : 0.0f)) * 0.32f;
+			p_step.ring += 2300.0f * vary * dt;
+			p_step.ring2 += 3700.0f * vary * dt;
+			const float ring = (std::sin(TAU_F * p_step.ring) + 0.5f * std::sin(TAU_F * p_step.ring2)) * std::exp(-T / 0.025f) * 0.05f;
+			const float f = 2.0f * std::sin(Math::PI * 4200.0f * vary / RATE);
+			const float scuff = Tt > 0.0f ? _svf_band(n, f, 0.7f, p_step.band_low, p_step.band) * _smoothstep(0.0f, 0.01f, Tt) * std::exp(-Tt / 0.04f) * 0.12f : 0.0f;
+			v = thump * 0.8f + click + ring + scuff;
 		} break;
 		case AudioStreamEdenAmbience::SURFACE_DIRT: {
-			const float f = 2.0f * std::sin(Math::PI * 700.0f / RATE);
-			const float mid = _svf_band(n, f, 1.2f, p_step.band_low, p_step.band) * std::exp(-T / 0.05f) * 0.18f;
-			v = thump * 1.2f + mid;
+			// A dull thud with a mid "puff", and a few crumbs crackling as the sole settles
+			const float f = 2.0f * std::sin(Math::PI * 650.0f * vary / RATE);
+			const float mid = _svf_band(n, f, 1.2f, p_step.band_low, p_step.band) * hit(0.006f, 0.05f) * 0.2f;
+			if (_rand() < 260.0f * dt * hit(0.01f, 0.08f)) {
+				p_step.grit = _noise();
+			}
+			p_step.grit *= 0.8f;
+			const float f2 = 2.0f * std::sin(Math::PI * 2600.0f * vary / RATE);
+			const float crumbs = _svf_band(p_step.grit, f2, 0.9f, p_step.band_low2, p_step.band2) * 0.22f;
+			v = thump * 1.2f + mid + crumbs;
 		} break;
 		case AudioStreamEdenAmbience::SURFACE_SAND: {
-			p_step.low += (n - p_step.low) * _lp_coef(900.0f, RATE);
-			const float hiss = (n - p_step.low) * _smoothstep(0.0f, 0.03f, T) * std::exp(-T / 0.1f) * 0.14f;
-			v = thump * 0.6f + hiss;
+			// Fine grains shifting: dense tiny impulses, band-limited, over a soft low "shff"
+			const float env = hit(0.02f, 0.11f);
+			if (_rand() < 2600.0f * dt * env) {
+				p_step.crunch = _noise();
+			}
+			p_step.crunch *= 0.7f;
+			const float f = 2.0f * std::sin(Math::PI * 3000.0f * vary / RATE);
+			const float grains = _svf_band(p_step.crunch, f, 1.1f, p_step.band_low, p_step.band) * 0.3f;
+			const float f2 = 2.0f * std::sin(Math::PI * 420.0f * vary / RATE);
+			const float shff = _svf_band(n, f2, 1.4f, p_step.band_low2, p_step.band2) * env * 0.12f;
+			v = thump * 0.55f + grains + shff;
 		} break;
 		case AudioStreamEdenAmbience::SURFACE_SNOW: {
-			// Grains snapping: random impulses, dense at first, band-limited so they crunch rather than tick
-			const float env = _smoothstep(0.0f, 0.015f, T) * std::exp(-T / 0.07f);
-			if (_rand() < 900.0f * dt * env) {
+			// Grains snapping as the snow packs (dense at first, band-limited so they crunch rather than tick), and a
+			// faint squeak sliding down while it compresses
+			const float env = hit(0.012f, 0.08f);
+			if (_rand() < 1100.0f * dt * env) {
 				p_step.crunch = _noise();
 			}
 			p_step.crunch *= 0.85f;
-			const float f = 2.0f * std::sin(Math::PI * 2200.0f / RATE);
-			v = thump * 0.7f + _svf_band(p_step.crunch, f, 0.9f, p_step.band_low, p_step.band) * 0.5f;
+			const float f = 2.0f * std::sin(Math::PI * 1900.0f * vary / RATE);
+			const float crunch = _svf_band(p_step.crunch, f, 0.9f, p_step.band_low, p_step.band) * 0.55f;
+			p_step.ring += Math::lerp(1150.0f, 720.0f, MIN(T / 0.12f, 1.0f)) * vary * dt;
+			const float squeak = std::sin(TAU_F * p_step.ring) * _smoothstep(0.02f, 0.05f, T) * (1.0f - _smoothstep(0.08f, 0.14f, T)) * 0.025f;
+			v = thump * 0.7f + crunch + squeak;
+		} break;
+		case AudioStreamEdenAmbience::SURFACE_MOSS: {
+			// Soft and damp: a muffled thump and a low wet squish, no bright rustle
+			p_step.low += (n - p_step.low) * _lp_coef(700.0f * vary, RATE);
+			const float f = 2.0f * std::sin(Math::PI * 520.0f * vary / RATE);
+			const float squish = _svf_band(p_step.low, f, 0.6f, p_step.band_low, p_step.band) * hit(0.02f, 0.07f) * 0.5f;
+			v = thump * 0.75f + squish;
+		} break;
+		case AudioStreamEdenAmbience::SURFACE_WOOD: {
+			// A hollow knock: two plank resonances ringing briefly under a dry click
+			const float click = n * (std::exp(-T / 0.002f) + (Tt > 0.0f ? 0.4f * std::exp(-Tt / 0.002f) : 0.0f)) * 0.06f;
+			p_step.ring += 185.0f * vary * dt;
+			p_step.ring2 += 430.0f * vary * dt;
+			const float body = (std::sin(TAU_F * p_step.ring) * 0.6f + std::sin(TAU_F * p_step.ring2) * 0.4f) * hit(0.002f, 0.06f) * 0.16f;
+			v = thump * 0.5f + click + body;
 		} break;
 		case AudioStreamEdenAmbience::SURFACE_WET: {
-			const float f = 2.0f * std::sin(Math::PI * 1500.0f / RATE);
-			const float splash = _svf_band(n, f, 0.8f, p_step.band_low, p_step.band) * std::exp(-T / 0.08f) * 0.3f;
-			p_step.ring += Math::lerp(750.0f, 320.0f, MIN(T / 0.12f, 1.0f)) * dt;
+			const float f = 2.0f * std::sin(Math::PI * 1500.0f * vary / RATE);
+			const float splash = _svf_band(n, f, 0.8f, p_step.band_low, p_step.band) * hit(0.004f, 0.08f) * 0.3f;
+			p_step.ring += Math::lerp(750.0f, 320.0f, MIN(T / 0.12f, 1.0f)) * vary * dt;
 			const float bubble = std::sin(TAU_F * p_step.ring) * std::exp(-T / 0.05f) * _smoothstep(0.01f, 0.03f, T) * 0.05f;
 			v = thump * 0.5f + splash + bubble;
 		} break;
-		default: { // grass, moss
-			p_step.low += (n - p_step.low) * _lp_coef(1500.0f, RATE);
-			const float swish = (n - p_step.low) * _smoothstep(0.0f, 0.012f, T) * std::exp(-T / 0.07f);
-			if (_rand() < 60.0f * dt) {
-				p_step.crunch = 0.4f + 0.6f * _rand(); // blades brushing: an uneven rustle
+		default: { // grass
+			// Blades brushing the foot: bright noise with an uneven, fluttering level, on the heel and the toe
+			p_step.low += (n - p_step.low) * _lp_coef(1500.0f * vary, RATE);
+			// (band-limited to ~1.5-6 kHz: above that it read as hiss rather than leaves)
+			p_step.low2 += ((n - p_step.low) - p_step.low2) * _lp_coef(6000.0f * vary, RATE);
+			const float swish = p_step.low2 * 1.4f * hit(0.012f, 0.075f);
+			if (_rand() < 70.0f * dt) {
+				p_step.crunch = 0.4f + 0.6f * _rand();
 			}
 			p_step.crunch += (0.5f - p_step.crunch) * dt * 30.0f;
-			v = thump * 0.6f + swish * 0.16f * p_step.crunch * 2.0f;
+			v = thump * 0.6f + swish * 0.32f * p_step.crunch;
 		} break;
 	}
 	v *= p_step.strength;
